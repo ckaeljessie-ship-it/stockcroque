@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#4338ca">
+    <title>Stock Croquettes - Golden Dago</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .fade-in { animation: fade .18s ease-out; }
+        @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+        /* Étiquettes */
+        :root { --code-w: 4.5cm; } /* largeur du code-barres imprimé */
+        .etiquettes-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .etiquette { border: 1px dashed #94a3b8; border-radius: 8px; padding: 6px; text-align: center; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+        .etiquette .nom { font-size: 11px; font-weight: 700; line-height: 1.15; margin-bottom: 2px; color: #0f172a; }
+        .etiquette svg { width: var(--code-w); max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        #lecteur video { border-radius: 12px; }
+
+        /* Impression : seules les étiquettes sont imprimées */
+        #print-area { display: none; }
+        @media print {
+            body > *:not(#print-area) { display: none !important; }
+            #print-area { display: block !important; padding: 8mm; }
+            #print-area .etiquettes-grid { grid-template-columns: repeat(auto-fill, calc(var(--code-w) + 0.7cm)); gap: 3mm; justify-content: start; }
+            #print-area .etiquette svg { width: var(--code-w) !important; max-width: none !important; }
+            body { background: #fff !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans">
+
+    <!-- Notification -->
+    <div id="toast" class="fixed top-3 left-1/2 -translate-x-1/2 z-50 hidden max-w-sm w-[92%] px-4 py-3 rounded-xl shadow-lg text-sm font-semibold text-white text-center"></div>
+
+    <div class="max-w-md mx-auto min-h-screen pb-28">
+
+        <!-- En-tête -->
+        <header class="bg-gradient-to-br from-indigo-700 via-indigo-600 to-blue-500 text-white px-4 pt-6 pb-14 rounded-b-3xl shadow-lg">
+            <div class="flex items-center gap-3">
+                <div class="text-3xl">🐕</div>
+                <div>
+                    <h1 class="text-xl font-extrabold leading-tight">Stock Croquettes</h1>
+                    <p class="text-xs text-indigo-100">Golden Dago · Scan &amp; gestion des stocks</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Cartes statistiques -->
+        <div class="px-4 -mt-9 grid grid-cols-3 gap-2">
+            <div class="bg-white rounded-2xl shadow p-3 text-center">
+                <div id="stat-total" class="text-2xl font-extrabold text-indigo-600">0</div>
+                <div class="text-[11px] text-slate-500 font-medium">Sacs en stock</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow p-3 text-center">
+                <div id="stat-refs" class="text-2xl font-extrabold text-slate-700">0</div>
+                <div class="text-[11px] text-slate-500 font-medium">Références</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow p-3 text-center">
+                <div id="stat-alertes" class="text-2xl font-extrabold text-amber-500">0</div>
+                <div class="text-[11px] text-slate-500 font-medium">Alertes</div>
+            </div>
+        </div>
+
+        <main class="px-4 mt-4">
+
+            <div id="rappel-sauvegarde" class="hidden mb-4">
+                <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3 text-xs flex items-center justify-between gap-3">
+                    <span id="rappel-txt"></span>
+                    <button type="button" onclick="sauvegarder()" class="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 text-white font-semibold active:scale-95">Sauvegarder</button>
+                </div>
+            </div>
+
+            <!-- ============ ONGLET MOUVEMENT ============ -->
+            <section id="tab-mouvement" class="space-y-4 fade-in">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-4">
+                    <h2 class="font-bold text-slate-700">Mouvement manuel</h2>
+
+                    <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold" id="type-switch">
+                        <button type="button" data-type="entree" class="type-btn py-2.5 rounded-lg transition">➕ Entrée</button>
+                        <button type="button" data-type="sortie" class="type-btn py-2.5 rounded-lg transition">➖ Sortie</button>
+                        <button type="button" data-type="inventaire" class="type-btn py-2.5 rounded-lg transition">📋 Inventaire</button>
+                    </div>
+                    <p id="type-aide" class="text-[11px] text-slate-400 -mt-2"></p>
+
+                    <div class="space-y-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Produit</label>
+                        <input id="recherche-produit" type="search" placeholder="🔍 Rechercher un produit…"
+                               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400">
+                        <select id="produit-select" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400"></select>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-3">
+                        <span class="text-xs font-semibold text-indigo-700">Stock actuel</span>
+                        <span id="stock-actuel" class="text-2xl font-extrabold text-indigo-700">—</span>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label id="label-qte" class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Quantité</label>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="changerQte(-1)" class="w-12 h-12 rounded-xl bg-slate-100 text-2xl font-bold text-slate-600 active:scale-95">−</button>
+                            <input type="number" id="quantite-input" min="0" value="1" inputmode="numeric"
+                                   class="flex-1 min-w-0 h-12 text-center text-xl font-bold border border-slate-200 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-indigo-400">
+                            <button type="button" onclick="changerQte(1)" class="w-12 h-12 rounded-xl bg-slate-100 text-2xl font-bold text-slate-600 active:scale-95">+</button>
+                        </div>
+                        <div id="chips-qte" class="flex gap-2">
+                            <button type="button" onclick="ajouterQte(5)" class="flex-1 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-600 active:scale-95">+5</button>
+                            <button type="button" onclick="ajouterQte(10)" class="flex-1 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-600 active:scale-95">+10</button>
+                            <button type="button" onclick="ajouterQte(20)" class="flex-1 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-600 active:scale-95">+20</button>
+                            <button type="button" onclick="definirQte(1)" class="flex-1 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-600 active:scale-95">Reset</button>
+                        </div>
+                    </div>
+
+                    <label id="bloc-codes" class="flex items-start gap-3 bg-indigo-50 rounded-xl p-3 text-xs text-indigo-800">
+                        <input type="checkbox" id="chk-codes" checked class="mt-0.5 w-5 h-5 accent-indigo-600">
+                        <span><b>Générer un code-barres unique par sac</b><br>Les sacs sont ajoutés au stock tout de suite. Il reste à imprimer les étiquettes et à les coller : plus besoin de scanner à l'entrée.</span>
+                    </label>
+
+                    <div id="apercu" class="text-center text-sm font-semibold rounded-xl py-2.5 bg-slate-50 text-slate-600"></div>
+
+                    <button id="btn-valider" type="button" onclick="validerMouvement()"
+                            class="w-full text-white font-bold py-3.5 rounded-xl shadow transition active:scale-[.98] text-sm">
+                        Valider le mouvement
+                    </button>
+                </div>
+            </section>
+
+            <!-- ============ ONGLET SCAN ============ -->
+            <section id="tab-scan" class="hidden space-y-4">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-4">
+                    <h2 class="font-bold text-slate-700">📷 Scanner un sac</h2>
+
+                    <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                        <button type="button" data-scanmode="entree" class="scanmode-btn py-2.5 rounded-lg transition">📥 Entrée</button>
+                        <button type="button" data-scanmode="sortie" class="scanmode-btn py-2.5 rounded-lg transition">📤 Sortie</button>
+                        <button type="button" data-scanmode="verifier" class="scanmode-btn py-2.5 rounded-lg transition">🔎 Vérifier</button>
+                    </div>
+                    <p id="scan-aide" class="text-[11px] text-slate-400 -mt-2"></p>
+
+                    <div id="lecteur" class="hidden w-full overflow-hidden rounded-xl bg-black"></div>
+
+                    <button id="btn-camera" type="button" onclick="basculerCamera()"
+                            class="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow active:scale-[.98] text-sm">
+                        📷 Démarrer la caméra
+                    </button>
+
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Douchette ou saisie manuelle</label>
+                        <div class="flex gap-2">
+                            <input id="scan-input" type="text" autocomplete="off" autocapitalize="characters" placeholder="Ex : GM20/01"
+                                   class="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-400">
+                            <button type="button" onclick="soumettreSaisie()" class="px-5 rounded-xl bg-slate-800 text-white text-sm font-semibold active:scale-95">OK</button>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Une douchette USB/Bluetooth tape le code puis « Entrée » : ça marche directement ici.</p>
+                    </div>
+
+                    <div id="scan-resultat" class="hidden rounded-xl p-4 text-center"></div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-2">
+                    <h3 class="font-semibold text-sm text-slate-600">Derniers scans</h3>
+                    <div id="scan-journal" class="space-y-1.5 text-xs"></div>
+                </div>
+            </section>
+
+            <!-- ============ ONGLET ÉTIQUETTES ============ -->
+            <section id="tab-etiquettes" class="hidden space-y-4">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-4">
+                    <h2 class="font-bold text-slate-700">🏷️ Générer des codes-barres</h2>
+                    <p class="text-[11px] text-slate-500 -mt-2">Chaque sac reçoit un code unique : <span class="font-mono font-semibold">CODE PRODUIT / NUMÉRO</span> (ex : <span class="font-mono font-semibold">GM20/01</span>, <span class="font-mono font-semibold">GM20/02</span>…).</p>
+
+                    <div class="space-y-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Produit</label>
+                        <select id="etq-produit" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400"></select>
+                        <div id="etq-stats" class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2"></div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Nombre d'étiquettes à créer</label>
+                        <label class="flex items-start gap-3 bg-indigo-50 rounded-xl p-3 text-xs text-indigo-800">
+                            <input type="checkbox" id="etq-direct" checked class="mt-0.5 w-5 h-5 accent-indigo-600">
+                            <span><b>Ajouter directement ces sacs au stock</b><br>Décoche seulement si tu préfères scanner chaque sac à l'entrée.</span>
+                        </label>
+                        <div class="flex gap-2">
+                            <input id="etq-qte" type="number" min="1" max="1000" value="10" inputmode="numeric"
+                                   class="w-24 text-center border border-slate-200 rounded-xl py-2.5 bg-slate-50 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400">
+                            <button type="button" onclick="genererEtiquettes()" class="flex-1 bg-indigo-600 text-white font-bold rounded-xl py-2.5 text-sm shadow active:scale-[.98]">Générer les codes</button>
+                        </div>
+                    </div>
+
+                    <button type="button" onclick="voirNonUtilisees()" class="w-full py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold active:scale-95">Voir les étiquettes non utilisées de ce produit</button>
+
+                    <div class="pt-3 border-t space-y-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide">Réimprimer des étiquettes (perdues ou abîmées)</label>
+                        <div class="flex items-center gap-2">
+                            <input id="etq-de" type="number" min="1" inputmode="numeric" placeholder="Du n°" class="w-24 min-w-0 text-center border border-slate-200 rounded-xl py-2.5 bg-slate-50 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400">
+                            <input id="etq-a" type="number" min="1" inputmode="numeric" placeholder="Au n°" class="w-24 min-w-0 text-center border border-slate-200 rounded-xl py-2.5 bg-slate-50 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400">
+                            <button type="button" onclick="reimprimerPlage()" class="flex-1 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-semibold active:scale-95">Afficher</button>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Ex : « Du n° 3 au n° 5 » pour GM20 donne GM20/03, GM20/04, GM20/05. Rien n'est ajouté au stock.</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-semibold text-sm text-slate-600">Aperçu</h3>
+                        <span id="etq-nb" class="text-xs text-slate-400 font-medium"></span>
+                    </div>
+                    <button type="button" onclick="imprimerEtiquettes()" class="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow active:scale-[.98]">🖨️ Imprimer / enregistrer en PDF</button>
+                    <p class="text-[11px] text-slate-400 -mt-1">Code-barres imprimé en <b>4,5 cm</b> de large. Dans la fenêtre d'impression, garde l'échelle à <b>100 %</b> (pas « Ajuster à la page »).</p>
+                    <div id="etq-apercu" class="etiquettes-grid"></div>
+                    <p class="text-[11px] text-slate-400">Colle une étiquette sur chaque sac. Si tu as décoché « Ajouter directement ces sacs au stock », scanne ensuite chaque sac en mode <b>Entrée</b> pour l'ajouter.</p>
+                </div>
+            </section>
+
+            <!-- ============ ONGLET STOCK ============ -->
+            <section id="tab-stock" class="hidden space-y-3">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-bold text-slate-700">📦 État du stock</h2>
+                        <span id="total-sacs" class="text-xs bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded-full">0 sacs</span>
+                    </div>
+                    <input id="recherche-stock" type="search" placeholder="🔍 Rechercher…"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400">
+                    <div class="flex gap-2 text-xs font-semibold" id="filtres-stock">
+                        <button type="button" data-filtre="tous" class="filtre-btn px-3 py-1.5 rounded-full">Tous</button>
+                        <button type="button" data-filtre="bas" class="filtre-btn px-3 py-1.5 rounded-full">Stock bas</button>
+                        <button type="button" data-filtre="rupture" class="filtre-btn px-3 py-1.5 rounded-full">Rupture</button>
+                    </div>
+                    <div id="liste-stocks" class="space-y-2"></div>
+                </div>
+            </section>
+
+            <!-- ============ ONGLET HISTORIQUE ============ -->
+            <section id="tab-historique" class="hidden space-y-3">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-bold text-slate-700">🕒 Historique</h2>
+                        <span id="nb-histo" class="text-xs text-slate-400 font-medium"></span>
+                    </div>
+                    <div id="liste-historique" class="space-y-2"></div>
+                </div>
+            </section>
+
+            <!-- ============ ONGLET OUTILS ============ -->
+            <section id="tab-outils" class="hidden space-y-4">
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">📤 Export</h2>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="exporterStockCSV()" class="py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold active:scale-95">Stock (CSV)</button>
+                        <button type="button" onclick="exporterHistoriqueCSV()" class="py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold active:scale-95">Historique (CSV)</button>
+                    </div>
+                    <button type="button" onclick="exporterCodesCSV()" class="w-full py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold active:scale-95">Codes-barres des sacs (CSV)</button>
+                    <p class="text-[11px] text-slate-400">Les fichiers CSV s'ouvrent directement dans Excel.</p>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">💾 Sauvegarde</h2>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="sauvegarder()" class="py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-semibold active:scale-95">Sauvegarder</button>
+                        <button type="button" onclick="document.getElementById('fichier-restauration').click()" class="py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-semibold active:scale-95">Restaurer</button>
+                    </div>
+                    <input type="file" id="fichier-restauration" accept=".json,application/json" class="hidden">
+                    <p class="text-[11px] text-slate-400">Fais une sauvegarde régulièrement : les données sont stockées sur ce téléphone uniquement.</p>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">⚙️ Réglages</h2>
+                    <div class="flex items-center justify-between gap-3">
+                        <label class="text-sm text-slate-600">Seuil d'alerte (stock bas)</label>
+                        <input id="seuil-input" type="number" min="0" inputmode="numeric" class="w-20 text-center border border-slate-200 rounded-lg py-2 bg-slate-50 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div class="pt-2 border-t space-y-2">
+                        <label class="block text-sm text-slate-600">Ajouter un produit <span class="text-[11px] text-slate-400">(code court facultatif, ex : GP12)</span></label>
+                        <div class="flex gap-2">
+                            <input id="nouveau-produit" type="text" placeholder="Ex : GOLD PUPPY 12KG" class="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400">
+                            <input id="nouveau-code" type="text" maxlength="8" autocapitalize="characters" placeholder="Code" class="w-20 border border-slate-200 rounded-lg px-2 py-2 bg-slate-50 text-sm font-mono text-center uppercase outline-none focus:ring-2 focus:ring-indigo-400">
+                            <button type="button" onclick="ajouterProduit()" class="px-4 rounded-lg bg-indigo-600 text-white text-sm font-semibold active:scale-95">Ajouter</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">✏️ Modifier un produit</h2>
+                    <select id="edit-produit" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400"></select>
+                    <input id="edit-nom" type="text" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-indigo-400">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="renommerProduit()" class="py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-semibold active:scale-95">Renommer</button>
+                        <button type="button" onclick="supprimerProduit()" class="py-3 rounded-xl bg-red-50 text-red-600 text-sm font-semibold active:scale-95">Supprimer</button>
+                    </div>
+                    <p class="text-[11px] text-slate-400">Le code court ne change pas : les étiquettes déjà collées restent valables. Suppression possible seulement si le stock est à 0.</p>
+                    <div class="pt-2 border-t space-y-2">
+                        <button type="button" onclick="reparerCoherence()" class="w-full py-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold active:scale-95">Vérifier la cohérence stock / sacs</button>
+                        <p class="text-[11px] text-slate-400">À utiliser si le compteur d'un produit ne correspond plus aux sacs codés (anciennes sorties manuelles).</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3 border border-red-100">
+                    <h2 class="font-bold text-red-600">⚠️ Zone dangereuse</h2>
+                    <button type="button" onclick="toutReinitialiser()" class="w-full py-3 rounded-xl bg-red-50 text-red-600 text-sm font-semibold active:scale-95">Remettre tous les stocks à 0</button>
+                    <p class="text-[11px] text-slate-400">Les codes-barres déjà imprimés restent valides (ils redeviennent « non utilisés »).</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Navigation basse -->
+    <nav class="fixed bottom-0 inset-x-0 z-40 bg-white border-t shadow-[0_-4px_12px_rgba(0,0,0,.05)] pb-safe">
+        <div class="max-w-md mx-auto grid grid-cols-6 text-[10px] font-semibold">
+            <button type="button" data-tab="mouvement" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">🔄</span>Mouvement</button>
+            <button type="button" data-tab="scan" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">📷</span>Scan</button>
+            <button type="button" data-tab="etiquettes" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">🏷️</span>Codes</button>
+            <button type="button" data-tab="stock" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">📦</span>Stock</button>
+            <button type="button" data-tab="historique" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">🕒</span>Histo.</button>
+            <button type="button" data-tab="outils" class="nav-btn flex flex-col items-center py-2 gap-0.5"><span class="text-lg">🛠️</span>Outils</button>
+        </div>
+    </nav>
+
+    <!-- Zone d'impression des étiquettes -->
+    <div id="print-area"><div id="print-grid" class="etiquettes-grid"></div></div>
+
+    <script>
+        // ---------- Données ----------
+        const produitsInitiaux = [
+            "ADULT PREMIUM 20KG", "EQUILIBRE ADULTE 20KG", "GOLD COMPETITION 20KG",
+            "GOLD MAXI 12KG", "GOLD MAXI 20KG", "GOLD MINI 20KG",
+            "GOLD SUPER LIGHT 20KG", "HUILE DE SAUMON 1L", "HUILE DE SAUMON 500ML",
+            "PRO VITALITY 10KG", "SPORT ENERGI+ 20KG", "SPORT PRO 20KG",
+            "START CHIOT 29/15 12KG", "STARTER 12KG", "X3 PREMIUM", "X5 MUSCLE"
+        ];
+
+        // Codes courts : le code-barres d'un sac = CODE PRODUIT + "/" + N° du sac (ex : GM20/01)
+        const CODES_PRODUITS = {
+            "ADULT PREMIUM 20KG": "AP20",
+            "EQUILIBRE ADULTE 20KG": "EA20",
+            "GOLD COMPETITION 20KG": "GC20",
+            "GOLD MAXI 12KG": "GM12",
+            "GOLD MAXI 20KG": "GM20",
+            "GOLD MINI 20KG": "GMI20",
+            "GOLD SUPER LIGHT 20KG": "GSL20",
+            "HUILE DE SAUMON 1L": "HS1L",
+            "HUILE DE SAUMON 500ML": "HS500",
+            "PRO VITALITY 10KG": "PV10",
+            "SPORT ENERGI+ 20KG": "SE20",
+            "SPORT PRO 20KG": "SP20",
+            "START CHIOT 29/15 12KG": "SC12",
+            "STARTER 12KG": "ST12",
+            "X3 PREMIUM": "X3",
+            "X5 MUSCLE": "X5"
+        };
+
+        // Propose un code court pour un produit ajouté à la main : initiales + nombres (GOLD PUPPY 12KG -> GP12)
+        function codeAuto(nom, utilises) {
+            const mots = String(nom).toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+            let base = '';
+            mots.forEach(m => {
+                if (/\d/.test(m)) base += m.match(/\d+/)[0];
+                else if (!['DE', 'DU', 'DES', 'LA', 'LE', 'ET'].includes(m)) base += m[0];
+            });
+            if (!/[A-Z]/.test(base)) base = 'P' + base;
+            base = base.slice(0, 7);
+            const lettres = 'BCDEFGHIJKLMNOPQRSTUVWXYZ';
+            let code = base;
+            for (let i = 0; utilises.has(code); i++) code = base + (i < lettres.length ? lettres[i] : i);
+            return code;
+        }
+
+        let db;
+        let produits = [];
+        let historique = [];
+        let unites = [];
+        let typeCourant = 'entree';
+        let modeScan = 'entree';
+        let filtreStock = 'tous';
+        let seuil = 3;
+        let etiquettesAffichees = [];
+
+        const TYPES = {
+            entree:     { aide: "Réception de marchandise (facture fournisseur) : le stock augmente.", btn: "bg-emerald-600 hover:bg-emerald-700", actif: "bg-emerald-600 text-white shadow", label: "Valider l'entrée" },
+            sortie:     { aide: "Vente ou sortie de sacs : le stock diminue.", btn: "bg-rose-600 hover:bg-rose-700", actif: "bg-rose-600 text-white shadow", label: "Valider la sortie" },
+            inventaire: { aide: "Comptage réel : la quantité saisie devient le nouveau stock.", btn: "bg-amber-500 hover:bg-amber-600", actif: "bg-amber-500 text-white shadow", label: "Valider l'inventaire" }
+        };
+
+        const MODES_SCAN = {
+            entree:   { aide: "Scanne chaque sac reçu : il est ajouté au stock (+1).", actif: "bg-emerald-600 text-white shadow" },
+            sortie:   { aide: "Scanne chaque sac vendu : il sort du stock (−1).", actif: "bg-rose-600 text-white shadow" },
+            verifier: { aide: "Scanne un sac pour voir son état, sans rien modifier.", actif: "bg-slate-700 text-white shadow" }
+        };
+
+        // ---------- Utilitaires ----------
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const $ = id => document.getElementById(id);
+        const pad = (n, l) => String(n).padStart(l, '0');
+        const codeUnite = (codeProduit, serial) => `${codeProduit}/${pad(serial, 2)}`;
+        const reqP = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+        const txDone = tx => new Promise((res, rej) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => rej(tx.error);
+            tx.onabort = () => rej(tx.error || new Error("Transaction annulée"));
+        });
+
+        let toastTimer;
+        function toast(msg, ok = true) {
+            const t = $('toast');
+            t.textContent = msg;
+            t.className = "fixed top-3 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%] px-4 py-3 rounded-xl shadow-lg text-sm font-semibold text-white text-center fade-in " + (ok ? "bg-emerald-600" : "bg-rose-600");
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => t.classList.add('hidden'), 2600);
+        }
+
+        function fmtTs(ts) {
+            return new Date(ts).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        function formatDate(h) {
+            if (h.ts) return fmtTs(h.ts);
+            return h.date || '';
+        }
+
+        function libelleStatut(u) {
+            if (u.statut === 'en_stock') return "En stock" + (u.dateEntree ? " depuis le " + fmtTs(u.dateEntree) : "");
+            if (u.statut === 'sorti') return "Sorti" + (u.dateSortie ? " le " + fmtTs(u.dateSortie) : "");
+            return "Étiquette non utilisée (pas encore entrée en stock)";
+        }
+
+        function telecharger(nom, contenu, mime) {
+            const blob = new Blob([contenu], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = nom;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function stamp() { return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+
+        let audioCtx;
+        function bip(ok) {
+            try {
+                audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                o.connect(g); g.connect(audioCtx.destination);
+                o.frequency.value = ok ? 1200 : 300;
+                g.gain.value = 0.15;
+                o.start();
+                o.stop(audioCtx.currentTime + (ok ? 0.12 : 0.35));
+            } catch (e) {}
+            try { if (navigator.vibrate) navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
+        }
+
+        // ---------- Base de données ----------
+        function ouvrirBase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open("StockCroquettesDB", 2);
+                request.onerror = () => reject(request.error);
+                request.onblocked = () => toast("Ferme les autres onglets de l'application puis recharge.", false);
+                request.onupgradeneeded = e => {
+                    const d = e.target.result;
+                    if (!d.objectStoreNames.contains("produits")) {
+                        const s = d.createObjectStore("produits", { keyPath: "id", autoIncrement: true });
+                        produitsInitiaux.forEach(nom => s.add({ nom: nom, stock: 0, code: CODES_PRODUITS[nom] || codeAuto(nom, new Set()), nextSerial: 1 }));
+                    }
+                    if (!d.objectStoreNames.contains("historique")) {
+                        d.createObjectStore("historique", { keyPath: "id", autoIncrement: true });
+                    }
+                    if (!d.objectStoreNames.contains("unites")) {
+                        const u = d.createObjectStore("unites", { keyPath: "code" });
+                        u.createIndex("produitId", "produitId", { unique: false });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+            });
+        }
+
+        // Ancien format = code produit numérique ("05"). Les produits concernés passent au code court,
+        // et leurs sacs / historique sont renommés (l'ancien code reste reconnu au scan : champ ancienCode).
+        const estCodeLegacy = c => !c || /^\d+$/.test(String(c));
+
+        async function migrerProduits() {
+            const tx = db.transaction(["produits", "unites", "historique"], "readwrite");
+            const sp = tx.objectStore("produits");
+            const su = tx.objectStore("unites");
+            const sh = tx.objectStore("historique");
+            const all = await reqP(sp.getAll());
+            const us = await reqP(su.getAll());
+            const hs = await reqP(sh.getAll());
+            const utilises = new Set(all.filter(p => !estCodeLegacy(p.code)).map(p => p.code));
+            all.sort((a, b) => a.id - b.id).forEach(p => {
+                if (!estCodeLegacy(p.code)) return;
+                let nouveau = CODES_PRODUITS[String(p.nom).toUpperCase()];
+                if (!nouveau || utilises.has(nouveau)) nouveau = codeAuto(p.nom, utilises);
+                utilises.add(nouveau);
+                p.code = nouveau;
+                p.nextSerial = p.nextSerial || 1;
+                sp.put(p);
+
+                const renomme = {};
+                us.filter(u => u.produitId === p.id).forEach(u => {
+                    const serial = u.serial != null ? u.serial : parseInt(String(u.code).split('-').pop());
+                    const nvCode = codeUnite(nouveau, serial);
+                    renomme[u.code] = nvCode;
+                    su.delete(u.code);
+                    su.put(Object.assign({}, u, { code: nvCode, serial: serial, ancienCode: u.ancienCode || u.code }));
+                });
+                hs.forEach(h => {
+                    const lui = h.produitId != null ? h.produitId === p.id : h.produit === p.nom;
+                    if (!lui) return;
+                    let modif = false;
+                    if (h.unite && renomme[h.unite]) { h.unite = renomme[h.unite]; modif = true; }
+                    if (h.lot) { h.lot.codeDe = codeUnite(nouveau, h.lot.de); h.lot.codeA = codeUnite(nouveau, h.lot.a); modif = true; }
+                    if (modif) sh.put(h);
+                });
+            });
+            await txDone(tx);
+        }
+
+        async function charger() {
+            const tx = db.transaction(["produits", "historique", "unites"], "readonly");
+            produits = await reqP(tx.objectStore("produits").getAll());
+            historique = (await reqP(tx.objectStore("historique").getAll())).reverse();
+            unites = await reqP(tx.objectStore("unites").getAll());
+            produits.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+            rendreTout();
+        }
+
+        const unitesDe = id => unites.filter(u => u.produitId === id);
+        const ordreFifo = (a, b) => (a.dateEntree || 0) - (b.dateEntree || 0) || (a.serial || 0) - (b.serial || 0);
+
+        // ---------- Rendu ----------
+        function rendreTout() {
+            rendreStats();
+            rendreSelect();
+            rendreSelectEtq();
+            rendreSelectEdit();
+            rendreStock();
+            rendreHistorique();
+            rendreApercu();
+            rendreRappel();
+        }
+
+        function rendreStats() {
+            const total = produits.reduce((s, p) => s + p.stock, 0);
+            const alertes = produits.filter(p => p.stock <= seuil).length;
+            $('stat-total').textContent = total;
+            $('stat-refs').textContent = produits.length;
+            $('stat-alertes').textContent = alertes;
+            $('total-sacs').textContent = `${total} sac${total > 1 ? 's' : ''}`;
+        }
+
+        function rendreSelect() {
+            const select = $('produit-select');
+            const q = $('recherche-produit').value.trim().toLowerCase();
+            const precedent = select.value;
+            select.innerHTML = '';
+            const liste = produits.filter(p => p.nom.toLowerCase().includes(q));
+            liste.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = `${p.nom}  (${p.stock})`;
+                select.appendChild(o);
+            });
+            if (liste.some(p => String(p.id) === precedent)) select.value = precedent;
+            if (!liste.length) {
+                const o = document.createElement('option');
+                o.textContent = "Aucun produit trouvé";
+                o.value = "";
+                select.appendChild(o);
+            }
+            rendreStockActuel();
+        }
+
+        function rendreSelectEtq() {
+            const select = $('etq-produit');
+            const precedent = select.value;
+            select.innerHTML = '';
+            produits.forEach(p => {
+                const o = document.createElement('option');
+                o.value = p.id;
+                o.textContent = `${p.code} · ${p.nom}`;
+                select.appendChild(o);
+            });
+            if (produits.some(p => String(p.id) === precedent)) select.value = precedent;
+            rendreStatsEtq();
+        }
+
+        function rendreStatsEtq() {
+            const id = parseInt($('etq-produit').value);
+            const p = produits.find(x => x.id === id);
+            const el = $('etq-stats');
+            if (!p) { el.textContent = ''; return; }
+            const us = unitesDe(p.id);
+            const nbStock = us.filter(u => u.statut === 'en_stock').length;
+            const nbSortis = us.filter(u => u.statut === 'sorti').length;
+            const nbLibres = us.filter(u => u.statut === 'etiquette').length;
+            el.innerHTML = `Code produit : <b class="font-mono">${esc(p.code)}</b> · ${nbStock} en stock · ${nbSortis} sortis · ${nbLibres} étiquette${nbLibres > 1 ? 's' : ''} non utilisée${nbLibres > 1 ? 's' : ''}${p.nextSerial > 1 ? ' · n° créés : 1 à ' + (p.nextSerial - 1) : ''}`;
+        }
+
+        function produitSelectionne() {
+            const id = parseInt($('produit-select').value);
+            return produits.find(p => p.id === id);
+        }
+
+        function rendreStockActuel() {
+            const p = produitSelectionne();
+            $('stock-actuel').textContent = p ? p.stock : '—';
+        }
+
+        function badgeStock(stock) {
+            if (stock <= 0) return { cls: 'bg-red-100 text-red-700', txt: 'Rupture' };
+            if (stock <= seuil) return { cls: 'bg-amber-100 text-amber-700', txt: 'Stock bas' };
+            return { cls: 'bg-emerald-100 text-emerald-700', txt: 'OK' };
+        }
+
+        function rendreStock() {
+            const q = $('recherche-stock').value.trim().toLowerCase();
+            const cont = $('liste-stocks');
+            cont.innerHTML = '';
+            const codes = {};
+            unites.forEach(u => { if (u.statut === 'en_stock') codes[u.produitId] = (codes[u.produitId] || 0) + 1; });
+
+            let liste = produits.filter(p => p.nom.toLowerCase().includes(q));
+            if (filtreStock === 'bas') liste = liste.filter(p => p.stock > 0 && p.stock <= seuil);
+            if (filtreStock === 'rupture') liste = liste.filter(p => p.stock <= 0);
+
+            if (!liste.length) {
+                cont.innerHTML = '<p class="text-center text-sm text-slate-400 py-6">Aucun produit</p>';
+            }
+            liste.forEach(p => {
+                const b = badgeStock(p.stock);
+                const div = document.createElement('button');
+                div.type = 'button';
+                div.className = "w-full flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50 active:bg-indigo-50 text-left";
+                div.onclick = () => choisirProduit(p.id);
+                div.innerHTML = `
+                    <div class="min-w-0">
+                        <div class="font-semibold text-sm text-slate-700 truncate">${esc(p.nom)}</div>
+                        <div class="mt-1 flex items-center gap-2">
+                            <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${b.cls}">${b.txt}</span>
+                            <span class="text-[10px] text-slate-400 font-mono">Code ${esc(p.code || '')}${codes[p.id] ? ' · ' + codes[p.id] + ' codé' + (codes[p.id] > 1 ? 's' : '') : ''}</span>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-extrabold text-indigo-600">${p.stock}</div>`;
+                cont.appendChild(div);
+            });
+
+            document.querySelectorAll('.filtre-btn').forEach(btn => {
+                const actif = btn.dataset.filtre === filtreStock;
+                btn.className = "filtre-btn px-3 py-1.5 rounded-full " + (actif ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600");
+            });
+        }
+
+        function rendreHistorique() {
+            const cont = $('liste-historique');
+            cont.innerHTML = '';
+            $('nb-histo').textContent = historique.length ? `${historique.length} mouvement${historique.length > 1 ? 's' : ''}` : '';
+            if (!historique.length) {
+                cont.innerHTML = '<p class="text-center text-sm text-slate-400 py-6">Aucun mouvement enregistré</p>';
+                return;
+            }
+            historique.slice(0, 100).forEach(h => {
+                const cfg = {
+                    entree:     { ico: '➕', cls: 'text-emerald-600', txt: `Entrée +${h.qte}` },
+                    sortie:     { ico: '➖', cls: 'text-rose-600',    txt: `Sortie −${h.qte}` },
+                    inventaire: { ico: '📋', cls: 'text-amber-600',   txt: `Inventaire → ${h.qte}` }
+                }[h.type] || { ico: '•', cls: 'text-slate-600', txt: `${h.type} ${h.qte}` };
+                const peutAnnuler = typeof h.avant === 'number' && typeof h.apres === 'number';
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-100 bg-slate-50";
+                div.innerHTML = `
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold text-slate-700 truncate">${esc(h.produit)}</div>
+                        <div class="text-xs"><span class="font-bold ${cfg.cls}">${cfg.ico} ${cfg.txt}</span>
+                            ${peutAnnuler ? `<span class="text-slate-400"> · ${h.avant} → ${h.apres}</span>` : ''}</div>
+                        ${h.unite ? `<div class="text-[11px] font-mono text-indigo-500">📷 ${esc(h.unite)}</div>` : ''}
+                        ${h.lot ? `<div class="text-[11px] font-mono text-indigo-500">🏷️ ${esc(h.lot.codeDe)} → ${esc(h.lot.codeA)}</div>` : ''}
+                        ${h.unitesSorties && h.unitesSorties.length ? `<div class="text-[11px] font-mono text-indigo-500">📷 ${h.unitesSorties.length} sac${h.unitesSorties.length > 1 ? 's' : ''} codé${h.unitesSorties.length > 1 ? 's' : ''} sorti${h.unitesSorties.length > 1 ? 's' : ''}</div>` : ''}
+                        <div class="text-[11px] text-slate-400">${esc(formatDate(h))}</div>
+                    </div>
+                    ${peutAnnuler ? `<button type="button" onclick="annulerMouvement(${Number(h.id)})" class="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 active:scale-95">Annuler</button>` : ''}`;
+                cont.appendChild(div);
+            });
+        }
+
+        function rendreApercu() {
+            const p = produitSelectionne();
+            const el = $('apercu');
+            const q = parseInt($('quantite-input').value);
+            if (!p || isNaN(q)) { el.textContent = ''; return; }
+            let nouveau;
+            if (typeCourant === 'entree') nouveau = p.stock + q;
+            else if (typeCourant === 'sortie') nouveau = p.stock - q;
+            else nouveau = q;
+            const invalide = nouveau < 0;
+            el.className = "text-center text-sm font-semibold rounded-xl py-2.5 " + (invalide ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-600");
+            el.textContent = invalide ? `⚠️ Stock insuffisant (il reste ${p.stock})` : `Nouveau stock : ${p.stock} → ${nouveau}`;
+        }
+
+        function appliquerType() {
+            const cfg = TYPES[typeCourant];
+            document.querySelectorAll('.type-btn').forEach(b => {
+                b.className = "type-btn py-2.5 rounded-lg transition " + (b.dataset.type === typeCourant ? TYPES[b.dataset.type].actif : "text-slate-500");
+            });
+            $('type-aide').textContent = cfg.aide;
+            const btn = $('btn-valider');
+            btn.className = "w-full text-white font-bold py-3.5 rounded-xl shadow transition active:scale-[.98] text-sm " + cfg.btn;
+            btn.textContent = cfg.label;
+            $('label-qte').textContent = typeCourant === 'inventaire' ? "Quantité comptée" : "Quantité";
+            $('bloc-codes').classList.toggle('hidden', typeCourant !== 'entree');
+            rendreApercu();
+        }
+
+        function appliquerModeScan() {
+            document.querySelectorAll('.scanmode-btn').forEach(b => {
+                b.className = "scanmode-btn py-2.5 rounded-lg transition " + (b.dataset.scanmode === modeScan ? MODES_SCAN[b.dataset.scanmode].actif : "text-slate-500");
+            });
+            $('scan-aide').textContent = MODES_SCAN[modeScan].aide;
+        }
+
+        // ---------- Navigation ----------
+        const ONGLETS = ['mouvement', 'scan', 'etiquettes', 'stock', 'historique', 'outils'];
+
+        function setTab(nom) {
+            if (nom !== 'scan') arreterCamera();
+            ONGLETS.forEach(t => {
+                const sec = $('tab-' + t);
+                sec.classList.toggle('hidden', t !== nom);
+                if (t === nom) sec.classList.add('fade-in');
+            });
+            document.querySelectorAll('.nav-btn').forEach(b => {
+                b.className = "nav-btn flex flex-col items-center py-2 gap-0.5 " + (b.dataset.tab === nom ? "text-indigo-600" : "text-slate-400");
+            });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (nom === 'scan' && !('ontouchstart' in window)) setTimeout(() => $('scan-input').focus(), 60);
+        }
+
+        function choisirProduit(id) {
+            $('recherche-produit').value = '';
+            rendreSelect();
+            $('produit-select').value = id;
+            rendreStockActuel();
+            rendreApercu();
+            setTab('mouvement');
+        }
+
+        // ---------- Quantité ----------
+        function lireQte() { const v = parseInt($('quantite-input').value); return isNaN(v) ? 0 : v; }
+        function definirQte(v) { $('quantite-input').value = v; rendreApercu(); }
+        function changerQte(d) { definirQte(Math.max(0, lireQte() + d)); }
+        function ajouterQte(d) { definirQte(lireQte() + d); }
+
+        // ---------- Mouvements manuels ----------
+        async function validerMouvement() {
+            const p = produitSelectionne();
+            if (!p) { toast("Choisis un produit.", false); return; }
+            if (typeCourant === 'entree' && $('chk-codes').checked) { await entreeAvecCodes(p); return; }
+            const quantite = parseInt($('quantite-input').value);
+            if (isNaN(quantite) || quantite < 0 || (typeCourant !== 'inventaire' && quantite === 0)) {
+                toast("Entre une quantité valide.", false); return;
+            }
+            try {
+                const tx = db.transaction(["produits", "historique", "unites"], "readwrite");
+                const sp = tx.objectStore("produits");
+                const sh = tx.objectStore("historique");
+                const su = tx.objectStore("unites");
+                const produit = await reqP(sp.get(p.id));
+                const avant = produit.stock;
+                let apres;
+                if (typeCourant === 'entree') apres = avant + quantite;
+                else if (typeCourant === 'sortie') {
+                    if (avant < quantite) { tx.abort(); toast(`Stock insuffisant (il reste ${avant}).`, false); return; }
+                    apres = avant - quantite;
+                } else apres = quantite;
+                produit.stock = apres;
+                sp.put(produit);
+                // Les sacs codés les plus anciens sortent en premier, pour que compteur et sacs restent cohérents
+                const retrait = typeCourant === 'sortie' ? quantite : (typeCourant === 'inventaire' && apres < avant ? avant - apres : 0);
+                const unitesSorties = [];
+                if (retrait > 0) {
+                    const enStock = (await reqP(su.index("produitId").getAll(produit.id))).filter(u => u.statut === 'en_stock').sort(ordreFifo);
+                    enStock.slice(0, retrait).forEach(u => { u.statut = 'sorti'; u.dateSortie = Date.now(); su.put(u); unitesSorties.push(u.code); });
+                }
+                const ligne = { produitId: produit.id, produit: produit.nom, type: typeCourant, qte: quantite, avant: avant, apres: apres, ts: Date.now() };
+                if (unitesSorties.length) ligne.unitesSorties = unitesSorties;
+                sh.add(ligne);
+                await txDone(tx);
+                toast(`✔ ${produit.nom} : ${avant} → ${apres}`);
+                definirQte(1);
+                await charger();
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                toast("Erreur lors de l'enregistrement.", false);
+            }
+        }
+
+        async function annulerMouvement(id) {
+            const h = historique.find(x => x.id === id);
+            if (!h) return;
+            if (!confirm(`Annuler ce mouvement ?\n${h.produit} (${h.avant} → ${h.apres})${h.unite ? '\nSac : ' + h.unite : ''}`)) return;
+            try {
+                const tx = db.transaction(["produits", "historique", "unites"], "readwrite");
+                const sp = tx.objectStore("produits");
+                const sh = tx.objectStore("historique");
+                const su = tx.objectStore("unites");
+                let produit = h.produitId ? await reqP(sp.get(h.produitId)) : null;
+                if (!produit) produit = (await reqP(sp.getAll())).find(x => x.nom === h.produit);
+                if (!produit) { tx.abort(); toast("Produit introuvable.", false); return; }
+                const nouveau = produit.stock - (h.apres - h.avant);
+                if (nouveau < 0) { tx.abort(); toast("Annulation impossible : le stock deviendrait négatif.", false); return; }
+
+                if (h.lot) {
+                    for (let s = h.lot.de; s <= h.lot.a; s++) {
+                        const u = await reqP(su.get(codeUnite(produit.code, s)));
+                        if (u && u.statut !== 'en_stock') { tx.abort(); toast("Annulation impossible : certains sacs de ce lot ont déjà été vendus.", false); return; }
+                    }
+                    for (let s = h.lot.de; s <= h.lot.a; s++) su.delete(codeUnite(produit.code, s));
+                }
+                if (h.unite) {
+                    const u = await reqP(su.get(h.unite));
+                    if (u) {
+                        const attendu = h.type === 'entree' ? 'en_stock' : 'sorti';
+                        if (u.statut !== attendu) { tx.abort(); toast("Annulation impossible : l'état de ce sac a changé depuis.", false); return; }
+                        if (h.type === 'entree') { u.statut = 'etiquette'; delete u.dateEntree; }
+                        else { u.statut = 'en_stock'; delete u.dateSortie; }
+                        su.put(u);
+                    }
+                }
+
+                if (Array.isArray(h.unitesSorties)) {
+                    for (const c of h.unitesSorties) {
+                        const u = await reqP(su.get(c));
+                        if (u && u.statut === 'sorti') { u.statut = 'en_stock'; delete u.dateSortie; su.put(u); }
+                    }
+                }
+
+                produit.stock = nouveau;
+                sp.put(produit);
+                sh.delete(h.id);
+                await txDone(tx);
+                toast("Mouvement annulé.");
+                await charger();
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                toast("Erreur lors de l'annulation.", false);
+            }
+        }
+
+        async function ajouterProduit() {
+            const nom = $('nouveau-produit').value.trim().toUpperCase();
+            if (!nom) { toast("Entre un nom de produit.", false); return; }
+            if (produits.some(p => p.nom.toUpperCase() === nom)) { toast("Ce produit existe déjà.", false); return; }
+            const utilises = new Set(produits.map(p => p.code));
+            let code = $('nouveau-code').value.trim().toUpperCase().replace(/\s+/g, '');
+            if (code) {
+                if (!/^[A-Z0-9]{1,8}$/.test(code) || !/[A-Z]/.test(code)) { toast("Code invalide : 1 à 8 lettres/chiffres, avec au moins une lettre.", false); return; }
+                if (utilises.has(code)) { toast("Ce code est déjà pris par un autre produit.", false); return; }
+            } else {
+                code = codeAuto(nom, utilises);
+            }
+            const tx = db.transaction("produits", "readwrite");
+            tx.objectStore("produits").add({ nom: nom, stock: 0, code: code, nextSerial: 1 });
+            await txDone(tx);
+            $('nouveau-produit').value = '';
+            $('nouveau-code').value = '';
+            toast(`Produit ajouté · code ${code}`);
+            await charger();
+        }
+
+        // Si un produit a plus de sacs codés « en stock » que son compteur, les plus anciens passent en « sortis »
+        async function reparerCoherence() {
+            try {
+                const tx = db.transaction(["produits", "unites"], "readwrite");
+                const sp = tx.objectStore("produits");
+                const su = tx.objectStore("unites");
+                const ps = await reqP(sp.getAll());
+                const us = await reqP(su.getAll());
+                let n = 0;
+                ps.forEach(pr => {
+                    const enStock = us.filter(u => u.produitId === pr.id && u.statut === 'en_stock').sort(ordreFifo);
+                    const exces = enStock.length - pr.stock;
+                    if (exces > 0) enStock.slice(0, exces).forEach(u => { u.statut = 'sorti'; u.dateSortie = Date.now(); su.put(u); n++; });
+                });
+                await txDone(tx);
+                toast(n ? `${n} sac${n > 1 ? 's' : ''} corrigé${n > 1 ? 's' : ''}.` : "Rien à corriger : tout est cohérent.");
+                await charger();
+            } catch (e) {
+                toast("Erreur pendant la vérification.", false);
+            }
+        }
+
+        // ---------- Modifier / supprimer un produit ----------
+        function rendreSelectEdit() {
+            const sel = $('edit-produit');
+            const precedent = sel.value;
+            sel.innerHTML = '';
+            produits.forEach(pr => {
+                const o = document.createElement('option');
+                o.value = pr.id;
+                o.textContent = `${pr.code} · ${pr.nom}`;
+                sel.appendChild(o);
+            });
+            if (produits.some(pr => String(pr.id) === precedent)) sel.value = precedent;
+            remplirNomEdit();
+        }
+
+        function remplirNomEdit() {
+            const pr = produits.find(x => x.id === parseInt($('edit-produit').value));
+            $('edit-nom').value = pr ? pr.nom : '';
+        }
+
+        async function renommerProduit() {
+            const id = parseInt($('edit-produit').value);
+            const nom = $('edit-nom').value.trim().toUpperCase();
+            if (isNaN(id)) { toast("Choisis un produit.", false); return; }
+            if (!nom) { toast("Entre un nom.", false); return; }
+            if (produits.some(pr => pr.id !== id && pr.nom.toUpperCase() === nom)) { toast("Ce nom existe déjà.", false); return; }
+            try {
+                const tx = db.transaction("produits", "readwrite");
+                const sp = tx.objectStore("produits");
+                const pr = await reqP(sp.get(id));
+                pr.nom = nom;
+                sp.put(pr);
+                await txDone(tx);
+                toast("Produit renommé.");
+                await charger();
+            } catch (e) {
+                toast("Erreur lors du renommage.", false);
+            }
+        }
+
+        async function supprimerProduit() {
+            const id = parseInt($('edit-produit').value);
+            const pr = produits.find(x => x.id === id);
+            if (!pr) { toast("Choisis un produit.", false); return; }
+            if (pr.stock > 0 || unitesDe(id).some(u => u.statut === 'en_stock')) {
+                toast("Impossible : il reste du stock. Fais d'abord les sorties ou un inventaire à 0.", false); return;
+            }
+            const nb = unitesDe(id).length;
+            if (!confirm(`Supprimer ${pr.nom} ?\n${nb} code${nb > 1 ? 's' : ''}-barres de ce produit seront supprimés. L'historique est conservé.`)) return;
+            try {
+                const tx = db.transaction(["produits", "unites"], "readwrite");
+                const su = tx.objectStore("unites");
+                const cles = await reqP(su.index("produitId").getAllKeys(id));
+                cles.forEach(k => su.delete(k));
+                tx.objectStore("produits").delete(id);
+                await txDone(tx);
+                toast("Produit supprimé.");
+                await charger();
+            } catch (e) {
+                toast("Erreur lors de la suppression.", false);
+            }
+        }
+
+        async function toutReinitialiser() {
+            if (!confirm("Remettre TOUS les stocks à 0 et effacer l'historique ?\nPense à faire une sauvegarde avant.")) return;
+            const tx = db.transaction(["produits", "historique", "unites"], "readwrite");
+            const sp = tx.objectStore("produits");
+            const su = tx.objectStore("unites");
+            const all = await reqP(sp.getAll());
+            all.forEach(p => { p.stock = 0; sp.put(p); });
+            const us = await reqP(su.getAll());
+            us.forEach(u => { u.statut = 'etiquette'; delete u.dateEntree; delete u.dateSortie; su.put(u); });
+            tx.objectStore("historique").clear();
+            await txDone(tx);
+            toast("Stocks remis à 0.");
+            await charger();
+        }
+
+        // ---------- Étiquettes / codes-barres ----------
+        function creerEtiquette(u) {
+            const p = produits.find(x => x.id === u.produitId);
+            const div = document.createElement('div');
+            div.className = 'etiquette';
+            div.innerHTML = `<div class="nom">${esc(p ? p.nom : '')}</div>`;
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            div.appendChild(svg);
+            try {
+                JsBarcode(svg, u.code, { format: 'CODE128', width: 2, height: 50, displayValue: true, fontSize: 14, textMargin: 2, marginTop: 4, marginBottom: 2, marginLeft: 12, marginRight: 12 });
+            } catch (e) {
+                svg.remove();
+                div.insertAdjacentHTML('beforeend', `<div style="font-family:monospace;font-weight:700">${esc(u.code)}</div>`);
+            }
+            return div;
+        }
+
+        function afficherEtiquettes(liste) {
+            etiquettesAffichees = liste;
+            const apercu = $('etq-apercu');
+            const imp = $('print-grid');
+            apercu.innerHTML = '';
+            imp.innerHTML = '';
+            liste.forEach((u, i) => {
+                if (i < 30) apercu.appendChild(creerEtiquette(u));
+                imp.appendChild(creerEtiquette(u));
+            });
+            $('etq-nb').textContent = liste.length ? `${liste.length} étiquette${liste.length > 1 ? 's' : ''}` + (liste.length > 30 ? " (aperçu des 30 premières, tout s'imprime)" : '') : '';
+            if (typeof JsBarcode === 'undefined' && liste.length) {
+                toast("Bibliothèque de codes-barres non chargée : connexion internet requise la 1re fois.", false);
+            }
+        }
+
+        // Crée n codes uniques pour un produit. direct = true : les sacs entrent aussitôt en stock.
+        async function genererLot(id, n, direct) {
+            const tx = db.transaction(["produits", "unites", "historique"], "readwrite");
+            const sp = tx.objectStore("produits");
+            const su = tx.objectStore("unites");
+            const sh = tx.objectStore("historique");
+            const p = await reqP(sp.get(id));
+            const maxExistant = Math.max(0, ...unitesDe(id).map(u => u.serial || 0));
+            let s = Math.max(p.nextSerial || 1, maxExistant + 1);
+            const premier = s;
+            const maintenant = Date.now();
+            const crees = [];
+            for (let i = 0; i < n; i++) {
+                const u = { code: codeUnite(p.code, s), produitId: p.id, serial: s, statut: direct ? 'en_stock' : 'etiquette', creeLe: maintenant };
+                if (direct) u.dateEntree = maintenant;
+                su.add(u);
+                crees.push(u);
+                s++;
+            }
+            p.nextSerial = s;
+            if (direct) {
+                const avant = p.stock, apres = avant + n;
+                p.stock = apres;
+                sh.add({
+                    produitId: p.id, produit: p.nom, type: 'entree', qte: n, avant: avant, apres: apres, ts: maintenant,
+                    lot: { de: premier, a: s - 1, codeDe: codeUnite(p.code, premier), codeA: codeUnite(p.code, s - 1) }
+                });
+            }
+            sp.put(p);
+            await txDone(tx);
+            return crees;
+        }
+
+        // Onglet Mouvement : Entrée de N sacs + génération des N codes
+        async function entreeAvecCodes(p) {
+            const n = parseInt($('quantite-input').value);
+            if (isNaN(n) || n < 1) { toast("Entre une quantité valide.", false); return; }
+            if (n > 1000) { toast("Maximum 1000 sacs à la fois : fais-le en plusieurs fois.", false); return; }
+            try {
+                const crees = await genererLot(p.id, n, true);
+                definirQte(1);
+                await charger();
+                $('etq-produit').value = p.id;
+                rendreStatsEtq();
+                afficherEtiquettes(crees);
+                setTab('etiquettes');
+                toast(`✔ ${n} sac${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''} au stock · ${crees[0].code} → ${crees[crees.length - 1].code}`);
+            } catch (e) {
+                toast("Erreur lors de la création des codes.", false);
+            }
+        }
+
+        // Onglet Codes : génération à la demande
+        async function genererEtiquettes() {
+            const id = parseInt($('etq-produit').value);
+            const n = parseInt($('etq-qte').value);
+            const direct = $('etq-direct').checked;
+            if (isNaN(id)) { toast("Choisis un produit.", false); return; }
+            if (isNaN(n) || n < 1 || n > 1000) { toast("Entre un nombre entre 1 et 1000.", false); return; }
+            try {
+                const crees = await genererLot(id, n, direct);
+                await charger();
+                afficherEtiquettes(crees);
+                toast(`✔ ${n} code${n > 1 ? 's' : ''} créé${n > 1 ? 's' : ''} (${crees[0].code} → ${crees[crees.length - 1].code})${direct ? ' · ajoutés au stock' : ''}`);
+            } catch (e) {
+                toast("Erreur lors de la création des codes.", false);
+            }
+        }
+
+        function voirNonUtilisees() {
+            const id = parseInt($('etq-produit').value);
+            const liste = unitesDe(id).filter(u => u.statut === 'etiquette').sort((a, b) => a.serial - b.serial);
+            if (!liste.length) { toast("Aucune étiquette non utilisée pour ce produit.", false); afficherEtiquettes([]); return; }
+            afficherEtiquettes(liste);
+        }
+
+        function reimprimerPlage() {
+            const id = parseInt($('etq-produit').value);
+            const de = parseInt($('etq-de').value);
+            let a = parseInt($('etq-a').value);
+            if (isNaN(id)) { toast("Choisis un produit.", false); return; }
+            if (isNaN(de) || de < 1) { toast("Entre le numéro de départ.", false); return; }
+            if (isNaN(a)) a = de;
+            if (a < de) { toast("Le numéro de fin doit être supérieur ou égal au début.", false); return; }
+            if (a - de >= 1000) { toast("Maximum 1000 étiquettes à la fois.", false); return; }
+            const liste = unitesDe(id).filter(u => u.serial >= de && u.serial <= a).sort((x, y) => x.serial - y.serial);
+            if (!liste.length) { toast("Aucun sac créé dans cette plage.", false); afficherEtiquettes([]); return; }
+            afficherEtiquettes(liste);
+        }
+
+        function imprimerEtiquettes() {
+            if (!etiquettesAffichees.length) { toast("Génère ou affiche d'abord des étiquettes.", false); return; }
+            window.print();
+        }
+
+        // ---------- Scan ----------
+        let scanner = null;
+        let cameraActive = false;
+        let dernierCode = '';
+        let dernierTemps = 0;
+        let fileScan = Promise.resolve();
+        let journalScan = [];
+
+        function majBoutonCamera() {
+            const b = $('btn-camera');
+            if (cameraActive) {
+                b.textContent = "⏹ Arrêter la caméra";
+                b.className = "w-full bg-slate-700 text-white font-bold py-3.5 rounded-xl shadow active:scale-[.98] text-sm";
+            } else {
+                b.textContent = "📷 Démarrer la caméra";
+                b.className = "w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow active:scale-[.98] text-sm";
+            }
+        }
+
+        async function basculerCamera() {
+            if (cameraActive) await arreterCamera(); else await demarrerCamera();
+        }
+
+        async function demarrerCamera() {
+            if (typeof Html5Qrcode === 'undefined') {
+                toast("Lecteur non chargé : connexion internet requise la 1re fois.", false);
+                return;
+            }
+            $('lecteur').classList.remove('hidden');
+            try {
+                const F = Html5QrcodeSupportedFormats;
+                scanner = new Html5Qrcode("lecteur", {
+                    formatsToSupport: [F.CODE_128, F.QR_CODE, F.EAN_13],
+                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                    verbose: false
+                });
+                await scanner.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: (w, h) => ({ width: Math.min(320, Math.floor(w * 0.9)), height: Math.min(150, Math.floor(h * 0.6)) }) },
+                    texte => surScanCamera(texte),
+                    () => {}
+                );
+                cameraActive = true;
+                majBoutonCamera();
+            } catch (e) {
+                $('lecteur').classList.add('hidden');
+                scanner = null;
+                cameraActive = false;
+                majBoutonCamera();
+                toast("Caméra inaccessible : autorise-la (le site doit être en HTTPS).", false);
+            }
+        }
+
+        async function arreterCamera() {
+            if (!scanner) return;
+            const s = scanner;
+            scanner = null;
+            cameraActive = false;
+            try { await s.stop(); s.clear(); } catch (e) {}
+            $('lecteur').classList.add('hidden');
+            majBoutonCamera();
+        }
+
+        function surScanCamera(texte) {
+            const maintenant = Date.now();
+            if (texte === dernierCode && maintenant - dernierTemps < 2500) return;
+            dernierCode = texte;
+            dernierTemps = maintenant;
+            lancerScan(texte);
+        }
+
+        function soumettreSaisie() {
+            const input = $('scan-input');
+            const v = input.value;
+            input.value = '';
+            if (v.trim()) lancerScan(v);
+            input.focus();
+        }
+
+        function lancerScan(texte) {
+            fileScan = fileScan.then(() => traiterScan(texte)).catch(() => {});
+        }
+
+        function resultatScan(type, titre, detail) {
+            const styles = {
+                ok:   "bg-emerald-50 border border-emerald-200 text-emerald-800",
+                warn: "bg-amber-50 border border-amber-200 text-amber-800",
+                err:  "bg-rose-50 border border-rose-200 text-rose-800",
+                info: "bg-sky-50 border border-sky-200 text-sky-800"
+            };
+            const icones = { ok: '✅', warn: '⚠️', err: '❌', info: '🔎' };
+            const el = $('scan-resultat');
+            el.className = "rounded-xl p-4 text-center fade-in " + styles[type];
+            el.innerHTML = `<div class="text-3xl">${icones[type]}</div><div class="font-bold mt-1">${esc(titre)}</div><div class="text-xs mt-1 font-mono break-words">${esc(detail)}</div>`;
+            bip(type === 'ok' || type === 'info');
+            journalScan.unshift({ type, titre, detail, ts: Date.now() });
+            journalScan = journalScan.slice(0, 8);
+            const j = $('scan-journal');
+            j.innerHTML = journalScan.map(x => `
+                <div class="flex items-start gap-2 p-2 rounded-lg bg-slate-50">
+                    <span>${icones[x.type]}</span>
+                    <div class="min-w-0"><div class="font-semibold text-slate-700 truncate">${esc(x.titre)}</div>
+                    <div class="text-slate-400 font-mono truncate">${esc(x.detail)}</div></div>
+                    <span class="ml-auto text-slate-300 shrink-0">${new Date(x.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>`).join('');
+        }
+
+        async function traiterScan(brut) {
+            // ":" -> "/" : une douchette réglée en clavier QWERTY envoie ":" à la place de "/" sur un clavier AZERTY
+            let code = String(brut).trim().toUpperCase().replace(/\s+/g, '').replace(/:/g, '/');
+            if (!code) return;
+
+            // Code produit seul (ex : "05") : ouvre le mouvement manuel de ce produit
+            const pc = produits.find(p => p.code === code);
+            if (pc) { choisirProduit(pc.id); toast(`Produit : ${pc.nom}`); return; }
+
+            try {
+                const tx = db.transaction(["unites", "produits", "historique"], "readwrite");
+                const su = tx.objectStore("unites");
+                const sp = tx.objectStore("produits");
+                const sh = tx.objectStore("historique");
+
+                let u = await reqP(su.get(code));
+                if (!u) {
+                    // étiquette imprimée avec l'ancien format (ex : 05-0001)
+                    const ancien = unites.find(x => x.ancienCode === code);
+                    if (ancien) u = await reqP(su.get(ancien.code));
+                }
+                if (!u) { tx.abort(); resultatScan('err', "Code inconnu", code); return; }
+                code = u.code;
+                const p = await reqP(sp.get(u.produitId));
+                if (!p) { tx.abort(); resultatScan('err', "Produit introuvable", code); return; }
+
+                if (modeScan === 'verifier') {
+                    tx.abort();
+                    resultatScan('info', p.nom, `${code} · ${libelleStatut(u)}`);
+                    return;
+                }
+
+                if (modeScan === 'entree') {
+                    if (u.statut !== 'etiquette') {
+                        tx.abort();
+                        resultatScan('warn', u.statut === 'en_stock' ? "Déjà en stock" : "Ce sac est déjà sorti", `${p.nom} · ${code}`);
+                        return;
+                    }
+                    const avant = p.stock, apres = avant + 1;
+                    p.stock = apres;
+                    u.statut = 'en_stock';
+                    u.dateEntree = Date.now();
+                    sp.put(p); su.put(u);
+                    sh.add({ produitId: p.id, produit: p.nom, type: 'entree', qte: 1, avant: avant, apres: apres, ts: Date.now(), unite: code });
+                    await txDone(tx);
+                    resultatScan('ok', `Entrée : ${p.nom}`, `${code} · stock ${avant} → ${apres}`);
+                } else {
+                    if (u.statut !== 'en_stock') {
+                        tx.abort();
+                        resultatScan('warn', u.statut === 'sorti' ? "Déjà sorti" : "Jamais entré en stock (scanne-le d'abord en Entrée)", `${p.nom} · ${code}`);
+                        return;
+                    }
+                    if (p.stock < 1) {
+                        tx.abort();
+                        resultatScan('err', "Stock du produit à 0", "Fais d'abord un inventaire pour corriger le stock.");
+                        return;
+                    }
+                    const avant = p.stock, apres = avant - 1;
+                    p.stock = apres;
+                    u.statut = 'sorti';
+                    u.dateSortie = Date.now();
+                    sp.put(p); su.put(u);
+                    sh.add({ produitId: p.id, produit: p.nom, type: 'sortie', qte: 1, avant: avant, apres: apres, ts: Date.now(), unite: code });
+                    await txDone(tx);
+                    resultatScan('ok', `Sortie : ${p.nom}`, `${code} · stock ${avant} → ${apres}`);
+                }
+                await charger();
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                resultatScan('err', "Erreur d'enregistrement", code);
+            }
+        }
+
+        // ---------- Export / sauvegarde ----------
+        const csvCell = v => {
+            let t = String(v);
+            if (/^[=+\-@\t\r]/.test(t) && isNaN(Number(t))) t = "'" + t; // évite qu'Excel exécute un texte commençant par = + - @
+            return `"${t.replace(/"/g, '""')}"`;
+        };
+        const csv = lignes => "﻿" + lignes.map(l => l.map(csvCell).join(";")).join("\r\n");
+
+        function exporterStockCSV() {
+            const lignes = [["Code produit", "Produit", "Stock", "Etat"]];
+            produits.forEach(p => lignes.push([p.code || "", p.nom, p.stock, badgeStock(p.stock).txt]));
+            telecharger(`stock-${stamp()}.csv`, csv(lignes), "text/csv;charset=utf-8");
+            toast("Export du stock prêt.");
+        }
+
+        function exporterHistoriqueCSV() {
+            const lignes = [["Date", "Produit", "Type", "Quantite", "Stock avant", "Stock apres", "Code sac"]];
+            historique.slice().reverse().forEach(h => lignes.push([formatDate(h), h.produit, h.type, h.qte, h.avant ?? "", h.apres ?? "", h.unite || ""]));
+            telecharger(`historique-${stamp()}.csv`, csv(lignes), "text/csv;charset=utf-8");
+            toast("Export de l'historique prêt.");
+        }
+
+        function exporterCodesCSV() {
+            const lignes = [["Code-barres", "Produit", "Statut", "Entree le", "Sortie le"]];
+            unites.slice().sort((a, b) => a.code.localeCompare(b.code)).forEach(u => {
+                const p = produits.find(x => x.id === u.produitId);
+                lignes.push([u.code, p ? p.nom : "", u.statut, u.dateEntree ? fmtTs(u.dateEntree) : "", u.dateSortie ? fmtTs(u.dateSortie) : ""]);
+            });
+            telecharger(`codes-barres-${stamp()}.csv`, csv(lignes), "text/csv;charset=utf-8");
+            toast("Export des codes prêt.");
+        }
+
+        function rendreRappel() {
+            const el = $('rappel-sauvegarde');
+            let derniere = 0;
+            try { derniere = parseInt(localStorage.getItem('derniereSauvegarde')) || 0; } catch (e) {}
+            const jours = derniere ? Math.floor((Date.now() - derniere) / 86400000) : null;
+            const aDesDonnees = historique.length > 0 || unites.length > 0;
+            if (!aDesDonnees || (jours !== null && jours < 7)) { el.classList.add('hidden'); return; }
+            $('rappel-txt').textContent = jours === null
+                ? "Aucune sauvegarde faite : si le navigateur efface les données de l'appli, tout est perdu."
+                : `Dernière sauvegarde il y a ${jours} jours.`;
+            el.classList.remove('hidden');
+        }
+
+        function sauvegarder() {
+            const data = { version: 3, date: new Date().toISOString(), produits: produits, historique: historique.slice().reverse(), unites: unites };
+            telecharger(`sauvegarde-stock-${stamp()}.json`, JSON.stringify(data, null, 2), "application/json");
+            try { localStorage.setItem('derniereSauvegarde', String(Date.now())); } catch (e) {}
+            rendreRappel();
+            toast("Sauvegarde téléchargée.");
+        }
+
+        async function restaurer(file) {
+            let tx;
+            try {
+                const data = JSON.parse(await file.text());
+                if (!Array.isArray(data.produits) || !Array.isArray(data.historique)) throw new Error("format");
+                if (!Array.isArray(data.unites)) data.unites = [];
+                const ok = data.produits.every(p => p && typeof p.nom === 'string' && p.id != null && Number.isFinite(Number(p.stock)))
+                    && data.unites.every(u => u && typeof u.code === 'string' && u.produitId != null)
+                    && data.historique.every(h => h && h.id != null);
+                if (!ok) throw new Error("format");
+                if (!confirm("Remplacer toutes les données actuelles par cette sauvegarde ?")) return;
+                tx = db.transaction(["produits", "historique", "unites"], "readwrite");
+                const sp = tx.objectStore("produits");
+                const sh = tx.objectStore("historique");
+                const su = tx.objectStore("unites");
+                sp.clear(); sh.clear(); su.clear();
+                data.produits.forEach(p => sp.put(p));
+                data.historique.forEach(h => sh.put(h));
+                data.unites.forEach(u => su.put(u));
+                await txDone(tx);
+                await migrerProduits();
+                toast("Sauvegarde restaurée.");
+                await charger();
+            } catch (e) {
+                // en cas d'erreur en cours d'écriture, on annule tout : les données actuelles restent intactes
+                try { if (tx) tx.abort(); } catch (err) {}
+                toast("Fichier de sauvegarde invalide.", false);
+            }
+        }
+
+        // ---------- Réglages ----------
+        function chargerSeuil() {
+            try { const s = parseInt(localStorage.getItem('seuilStock')); if (!isNaN(s)) seuil = s; } catch (e) {}
+            $('seuil-input').value = seuil;
+        }
+
+        // ---------- Démarrage ----------
+        (async function init() {
+            chargerSeuil();
+            appliquerType();
+            appliquerModeScan();
+            majBoutonCamera();
+            setTab('mouvement');
+
+            document.querySelectorAll('.type-btn').forEach(b => b.addEventListener('click', () => { typeCourant = b.dataset.type; appliquerType(); }));
+            document.querySelectorAll('.scanmode-btn').forEach(b => b.addEventListener('click', () => { modeScan = b.dataset.scanmode; appliquerModeScan(); }));
+            document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+            document.querySelectorAll('.filtre-btn').forEach(b => b.addEventListener('click', () => { filtreStock = b.dataset.filtre; rendreStock(); }));
+            $('recherche-produit').addEventListener('input', rendreSelect);
+            $('recherche-stock').addEventListener('input', rendreStock);
+            $('produit-select').addEventListener('change', () => { rendreStockActuel(); rendreApercu(); });
+            $('etq-produit').addEventListener('change', rendreStatsEtq);
+            $('edit-produit').addEventListener('change', remplirNomEdit);
+            $('quantite-input').addEventListener('input', rendreApercu);
+            $('scan-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); soumettreSaisie(); } });
+            $('fichier-restauration').addEventListener('change', e => { if (e.target.files[0]) restaurer(e.target.files[0]); e.target.value = ''; });
+            $('seuil-input').addEventListener('change', e => {
+                const v = parseInt(e.target.value);
+                seuil = isNaN(v) || v < 0 ? 3 : v;
+                e.target.value = seuil;
+                try { localStorage.setItem('seuilStock', seuil); } catch (err) {}
+                rendreTout();
+            });
+
+            try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+            try { if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {}); } catch (e) {}
+
+            try {
+                db = await ouvrirBase();
+                await migrerProduits();
+                await charger();
+            } catch (e) {
+                toast("Impossible d'ouvrir la base de données locale.", false);
+            }
+        })();
+    </script>
+</body>
+</html>
