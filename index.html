@@ -1498,19 +1498,7 @@
         window.addEventListener('appinstalled', () => { promptInstall = null; $('btn-install').classList.add('hidden'); toast("Application installée ✔"); });
         async function installerApp() {
             if (promptInstall) { promptInstall.prompt(); await promptInstall.userChoice; promptInstall = null; return; }
-            const ua = navigator.userAgent;
-            const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            const android = /Android/.test(ua);
-            const firefox = /Firefox|FxiOS/.test(ua);
-            let t = "Ouvre le menu de ton navigateur puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
-            if (location.protocol === 'file:') t = "L'installation ne marche que depuis le site en ligne (https), pas depuis un fichier ouvert sur le téléphone.";
-            else if (ios) t = "Appuie sur le bouton Partager (carré avec une flèche), puis « Sur l'écran d'accueil ». Sur iPhone, ça marche dans Safari (et aussi dans Chrome/Firefox récents).";
-            else if (firefox && android) t = "Dans Firefox : menu ⋮ (en haut ou en bas à droite), puis « Installer ». Si tu ne le vois pas, choisis « Ajouter à l'écran d'accueil ».";
-            else if (firefox) t = "Firefox sur ordinateur ne sait pas installer les applis web. Ouvre ce site avec Chrome ou Edge (icône d'installation dans la barre d'adresse), ou utilise Firefox sur ton téléphone Android.";
-            else if (/SamsungBrowser/.test(ua)) t = "Dans Samsung Internet : menu ≡, puis « Ajouter la page à » → « Écran d'accueil ».";
-            else if (android) t = "Dans ton navigateur : menu ⋮ en haut à droite, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
-            $('install-txt').textContent = t;
-            $('modal-install').classList.remove('hidden');
+            toast("Installation directe impossible avec ce navigateur : ouvre ce site avec Chrome.", false);
         }
 
 
