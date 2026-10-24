@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#4338ca"><title>Sorties vendeur - Golden Dago</title>
+<link rel="manifest" href="manifest-vendeur.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Sorties Dago">
+<script src="sync-config.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f1f5f9;color:#334155}
+header{background:linear-gradient(135deg,#4338ca,#3b82f6);color:#fff;padding:20px 16px;display:flex;gap:12px;align-items:center;border-radius:0 0 24px 24px}
+header img{width:52px;height:52px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.4)}h1{margin:0;font-size:20px}header p{margin:2px 0 0;font-size:12px;opacity:.85}
+main{max-width:440px;margin:0 auto;padding:16px;display:grid;gap:12px}.c{background:#fff;border-radius:16px;padding:14px;box-shadow:0 1px 4px #0001;display:grid;gap:10px}
+input,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:12px;font-size:16px;background:#fff}
+button{padding:14px;border:0;border-radius:12px;font-weight:700;font-size:15px;color:#fff;background:#4338ca}button.g{background:#e11d48}
+#res{border-radius:12px;padding:14px;font-weight:700;text-align:center;display:none}.ok{background:#d1fae5;color:#065f46}.err{background:#ffe4e6;color:#9f1239}
+li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-family:monospace}ul{margin:0;padding:0;list-style:none}
+#lecteur{display:none;border-radius:12px;overflow:hidden;background:#000}
+</style></head><body>
+<header><img src="icon-192.png" alt=""><div><h1>Sorties vendeur</h1><p>Golden Dago · scanne chaque sac vendu</p></div></header>
+<main>
+ <div class="c"><input id="nom" placeholder="Ton prénom" maxlength="20" autocomplete="off"><input id="pin" type="password" placeholder="Code vendeur" autocomplete="off">
+  <select id="motif"><option>Vente</option><option>Abîmé</option><option>Retour fournisseur</option><option>Autre</option></select></div>
+ <div class="c"><div id="lecteur"></div><button class="g" id="cam" type="button">📷 Scanner un sac</button>
+  <input id="saisie" placeholder="ou tape / scanne le code ici" autocapitalize="characters" autocomplete="off"><div id="res"></div></div>
+ <div class="c"><b id="att">Aucune sortie en attente</b><ul id="recent"></ul></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let file = load('vq', []), dernier = { c: '', t: 0 }, envoi = false;
+const FORMAT_CODE_SAC = /^([A-Z0-9]{1,8}\/[0-9]{2,6}|[0-9]{2}-[0-9]{4})$/; // ex : GM20/01
+$('nom').value = load('vnom', ''); $('pin').value = load('vpin', '');
+$('nom').oninput = () => save('vnom', $('nom').value.trim()); $('pin').oninput = () => save('vpin', $('pin').value.trim());
+function msg(ok, t) { const r = $('res'); r.className = ok ? 'ok' : 'err'; r.style.display = 'block'; r.textContent = t; if (navigator.vibrate) navigator.vibrate(ok ? 80 : [80, 60, 80]); }
+function rendre() {
+  const att = file.filter(x => !x.ok).length;
+  $('att').textContent = att ? `⏳ ${att} sortie(s) en attente d'envoi` : '✅ Tout est envoyé';
+  $('recent').innerHTML = file.slice(-15).reverse().map(x => `<li><span>${x.code.replace(/[<>&]/g, '')}</span><span>${x.refuse ? '✖ refusé' : x.ok ? '✔ envoyé' : '⏳'}</span></li>`).join('');
+}
+async function rpc(nom, args) {
+  const S = window.SYNC; if (!S || !S.url) throw new Error('config');
+  const r = await fetch(`${S.url}/rest/v1/rpc/${nom}`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: S.anonKey, Authorization: 'Bearer ' + S.anonKey }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = new Error((await r.text()) || r.status); e.http = r.status; throw e; }
+}
+async function envoyer() {
+  if (envoi) return; envoi = true;
+  try {
+    for (const x of file.filter(y => !y.ok)) {
+      try { await rpc('ajouter_sortie', { pin: $('pin').value.trim(), p_uid: x.uid, p_code: x.code, p_par: x.par, p_motif: x.motif, p_ts: new Date(x.ts).toISOString() }); x.ok = true; save('vq', file); rendre(); }
+      catch (e) {
+        if (e.http && /PIN/.test(e.message)) { msg(false, 'Code vendeur incorrect'); break; }
+        if (e.http && /CODE_INVALIDE/.test(e.message)) { x.ok = true; x.refuse = true; save('vq', file); rendre(); msg(false, 'Code refusé : ' + x.code.slice(0, 20)); continue; } // ne bloque pas les suivants
+        if (e.message === 'config' && navigator.onLine) msg(false, "Liaison non configurée (sync-config.js)");
+        break; // réseau coupé ou erreur serveur : on garde la file et on réessaie plus tard
+      }
+    }
+    file = file.filter((x, i) => !x.ok || i >= file.length - 30); save('vq', file);
+  } finally { envoi = false; rendre(); }
+}
+function scan(brut) {
+  const code = String(brut).trim().toUpperCase().replace(/\s+/g, '').replace(/:/g, '/');
+  if (!code) return;
+  if (!FORMAT_CODE_SAC.test(code)) { msg(false, "Ce n'est pas un code de sac (ex : GM20/01)"); return; }
+  if (!$('nom').value.trim()) { msg(false, 'Entre ton prénom'); $('nom').focus(); return; }
+  if (!$('pin').value.trim()) { msg(false, 'Entre le code vendeur'); $('pin').focus(); return; }
+  const now = Date.now();
+  if (dernier.c === code && now - dernier.t < 3000) return; dernier = { c: code, t: now };
+  if (file.some(x => x.code === code && now - x.ts < 86400000)) { msg(false, 'Déjà scanné : ' + code); return; }
+  file.push({ uid: (crypto.randomUUID ? crypto.randomUUID() : now + '-' + Math.random()), code, par: $('nom').value.trim(), motif: $('motif').value, ts: now, ok: false });
+  save('vq', file); msg(true, 'Sortie enregistrée : ' + code); rendre(); envoyer();
+}
+$('saisie').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scan($('saisie').value); $('saisie').value = ''; } });
+let cam = null;
+$('cam').onclick = async () => {
+  if (cam) { try { await cam.stop(); } catch (e) {} cam = null; $('lecteur').style.display = 'none'; $('cam').textContent = '📷 Scanner un sac'; return; }
+  try { $('lecteur').style.display = 'block'; cam = new Html5Qrcode('lecteur'); $('cam').textContent = '⏹ Arrêter la caméra';
+    await cam.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 120 } }, scan, () => {}); }
+  catch (e) { cam = null; $('lecteur').style.display = 'none'; $('cam').textContent = '📷 Scanner un sac'; msg(false, 'Caméra indisponible : tape le code à la main'); }
+};
+window.addEventListener('online', envoyer); setInterval(envoyer, 30000); rendre(); envoyer();
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script></body></html>
