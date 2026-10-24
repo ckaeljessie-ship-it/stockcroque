@@ -32,6 +32,9 @@ const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 let file = load('vq', []), dernier = { c: '', t: 0 }, envoi = false;
 const FORMAT_CODE_SAC = /^([A-Z0-9]{1,8}\/[0-9]{2,6}|[0-9]{2}-[0-9]{4})$/; // ex : GM20/01
 $('nom').value = load('vnom', ''); $('pin').value = load('vpin', '');
+// Lien magique : vendeur.html#nom=Marie&code=XXXX pré-remplit prénom et code (et les mémorise)
+try { const p = new URLSearchParams(location.hash.slice(1)); const n = (p.get('nom') || '').trim().slice(0, 20), c = (p.get('code') || '').trim();
+  if (n) { $('nom').value = n; save('vnom', n); } if (c) { $('pin').value = c; save('vpin', c); } } catch (e) {}
 $('nom').oninput = () => save('vnom', $('nom').value.trim()); $('pin').oninput = () => save('vpin', $('pin').value.trim());
 function msg(ok, t) { const r = $('res'); r.className = ok ? 'ok' : 'err'; r.style.display = 'block'; r.textContent = t; if (navigator.vibrate) navigator.vibrate(ok ? 80 : [80, 60, 80]); }
 function rendre() {
