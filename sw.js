@@ -1,5 +1,5 @@
 // Garde l'appli et ses bibliothèques en cache pour qu'elle s'ouvre même sans connexion.
-const CACHE = 'stock-croquettes-v5';
+const CACHE = 'stock-croquettes-v6';
 const CDN = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'unpkg.com'];
 
 const LIBS = ['https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js', 'https://cdn.tailwindcss.com'];
@@ -23,10 +23,10 @@ self.addEventListener('fetch', e => {
     if (CDN.includes(url.hostname)) {
         // bibliothèques : cache d'abord
         e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(garder)));
-    } else if (url.origin === location.origin && /\.(png|json|svg)$/.test(url.pathname)) {
-        // icônes et manifest : cache d'abord
+    } else if (url.origin === location.origin && /\.(png|svg)$/.test(url.pathname)) {
+        // icônes : cache d'abord
         e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(garder)));
-    } else if (url.origin === location.origin && (req.mode === 'navigate' || /\.(html|js)$/.test(url.pathname))) {
+    } else if (url.origin === location.origin && (req.mode === 'navigate' || /\.(html|js|json)$/.test(url.pathname))) {
         // l'appli et sync-config.js : réseau d'abord (dernière version), mais si le réseau traîne (> 4 s) ou tombe, on prend le cache
         const secours = /vendeur/.test(url.pathname) ? 'vendeur.html' : 'index.html';
         const depuisCache = () => caches.match(req, { ignoreSearch: true }).then(hit => hit || caches.match(secours) || caches.match(self.registration.scope));
