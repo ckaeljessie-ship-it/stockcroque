@@ -92,15 +92,7 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptInstall
 addEventListener('appinstalled', () => { promptInstall = null; $('bloc-install').style.display = 'none'; });
 $('btn-install').onclick = async () => {
   if (promptInstall) { promptInstall.prompt(); await promptInstall.userChoice; promptInstall = null; return; }
-  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1), android = /Android/.test(ua), firefox = /Firefox|FxiOS/.test(ua);
-  let t = "Ouvre le menu de ton navigateur puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
-  if (location.protocol === 'file:') t = "L'installation ne marche que depuis le site en ligne (https), pas depuis un fichier ouvert sur le téléphone.";
-  else if (ios) t = "Appuie sur le bouton Partager (carré avec une flèche), puis « Sur l'écran d'accueil ».";
-  else if (firefox && android) t = "Dans Firefox : menu ⋮, puis « Installer ». Sinon « Ajouter à l'écran d'accueil ».";
-  else if (firefox) t = "Firefox sur ordinateur ne sait pas installer les applis web. Utilise Chrome ou Edge.";
-  else if (/SamsungBrowser/.test(ua)) t = "Dans Samsung Internet : menu ≡, puis « Ajouter la page à » → « Écran d'accueil ».";
-  else if (android) t = "Dans ton navigateur : menu ⋮, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
-  $('install-txt').textContent = t; $('install-txt').style.display = 'block';
+  $('install-txt').textContent = "Installation directe impossible avec ce navigateur : ouvre ce site avec Chrome."; $('install-txt').style.display = 'block';
 };
 majInstall();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
