@@ -1,5 +1,5 @@
 // Garde l'appli et ses bibliothèques en cache pour qu'elle s'ouvre même sans connexion.
-const CACHE = 'stock-croquettes-v6';
+const CACHE = 'stock-croquettes-v7';
 const CDN = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'unpkg.com'];
 
 const LIBS = ['https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js', 'https://cdn.tailwindcss.com'];
