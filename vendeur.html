@@ -23,6 +23,7 @@ li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;borde
   <select id="motif"><option>Vente</option><option>Abîmé</option><option>Retour fournisseur</option><option>Autre</option></select></div>
  <div class="c"><div id="lecteur"></div><button class="g" id="cam" type="button">📷 Scanner un sac</button>
   <input id="saisie" placeholder="ou tape / scanne le code ici" autocapitalize="characters" autocomplete="off"><div id="res"></div></div>
+ <div class="c" id="bloc-install" style="display:none"><button type="button" id="btn-install" style="background:#4338ca">📲 Télécharger l'app</button><div id="install-txt" style="display:none;font-size:13px;line-height:1.4"></div></div>
  <div class="c"><b id="att">Aucune sortie en attente</b><ul id="recent"></ul></div>
 </main>
 <script>
@@ -83,5 +84,24 @@ $('cam').onclick = async () => {
   catch (e) { cam = null; $('lecteur').style.display = 'none'; $('cam').textContent = '📷 Scanner un sac'; msg(false, 'Caméra indisponible : tape le code à la main'); }
 };
 window.addEventListener('online', envoyer); setInterval(envoyer, 30000); rendre(); envoyer();
+// Installation de l'app (PWA)
+let promptInstall = null;
+const dejaInstallee = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const majInstall = () => { $('bloc-install').style.display = dejaInstallee() ? 'none' : 'grid'; };
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptInstall = e; majInstall(); });
+addEventListener('appinstalled', () => { promptInstall = null; $('bloc-install').style.display = 'none'; });
+$('btn-install').onclick = async () => {
+  if (promptInstall) { promptInstall.prompt(); await promptInstall.userChoice; promptInstall = null; return; }
+  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1), android = /Android/.test(ua), firefox = /Firefox|FxiOS/.test(ua);
+  let t = "Ouvre le menu de ton navigateur puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
+  if (location.protocol === 'file:') t = "L'installation ne marche que depuis le site en ligne (https), pas depuis un fichier ouvert sur le téléphone.";
+  else if (ios) t = "Appuie sur le bouton Partager (carré avec une flèche), puis « Sur l'écran d'accueil ».";
+  else if (firefox && android) t = "Dans Firefox : menu ⋮, puis « Installer ». Sinon « Ajouter à l'écran d'accueil ».";
+  else if (firefox) t = "Firefox sur ordinateur ne sait pas installer les applis web. Utilise Chrome ou Edge.";
+  else if (/SamsungBrowser/.test(ua)) t = "Dans Samsung Internet : menu ≡, puis « Ajouter la page à » → « Écran d'accueil ».";
+  else if (android) t = "Dans ton navigateur : menu ⋮, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
+  $('install-txt').textContent = t; $('install-txt').style.display = 'block';
+};
+majInstall();
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script></body></html>
