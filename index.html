@@ -310,6 +310,14 @@
                     <p id="sync-etat" class="text-xs text-slate-400"></p>
                 </div>
                 <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">📨 Lien pour un vendeur</h2>
+                    <p class="text-xs text-slate-400">Crée un lien qui ouvre l'appli vendeur déjà remplie (prénom + code vendeur). Envoie-le par WhatsApp ou SMS.</p>
+                    <input id="lien-nom" type="text" maxlength="20" placeholder="Prénom du vendeur" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+                    <input id="lien-code" type="text" placeholder="Code vendeur" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+                    <button type="button" onclick="creerLienVendeur()" class="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm active:scale-95">Créer / partager le lien</button>
+                    <p id="lien-res" class="text-xs text-slate-500 break-all select-all"></p>
+                </div>
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
                     <h2 class="font-bold text-slate-700">📤 Export</h2>
                     <div class="grid grid-cols-2 gap-2">
                         <button type="button" onclick="exporterStockCSV()" class="py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold active:scale-95">Stock (CSV)</button>
@@ -1491,10 +1499,16 @@
         async function installerApp() {
             if (promptInstall) { promptInstall.prompt(); await promptInstall.userChoice; promptInstall = null; return; }
             const ua = navigator.userAgent;
+            const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            const android = /Android/.test(ua);
+            const firefox = /Firefox|FxiOS/.test(ua);
             let t = "Ouvre le menu de ton navigateur puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
             if (location.protocol === 'file:') t = "L'installation ne marche que depuis le site en ligne (https), pas depuis un fichier ouvert sur le téléphone.";
-            else if (/iPhone|iPad|iPod/.test(ua)) t = "Dans Safari : appuie sur le bouton Partager (carré avec une flèche), puis « Sur l'écran d'accueil ».";
-            else if (/Android/.test(ua)) t = "Dans Chrome : menu ⋮ en haut à droite, puis « Installer l'application ».";
+            else if (ios) t = "Appuie sur le bouton Partager (carré avec une flèche), puis « Sur l'écran d'accueil ». Sur iPhone, ça marche dans Safari (et aussi dans Chrome/Firefox récents).";
+            else if (firefox && android) t = "Dans Firefox : menu ⋮ (en haut ou en bas à droite), puis « Installer ». Si tu ne le vois pas, choisis « Ajouter à l'écran d'accueil ».";
+            else if (firefox) t = "Firefox sur ordinateur ne sait pas installer les applis web. Ouvre ce site avec Chrome ou Edge (icône d'installation dans la barre d'adresse), ou utilise Firefox sur ton téléphone Android.";
+            else if (/SamsungBrowser/.test(ua)) t = "Dans Samsung Internet : menu ≡, puis « Ajouter la page à » → « Écran d'accueil ».";
+            else if (android) t = "Dans ton navigateur : menu ⋮ en haut à droite, puis « Installer l'application » ou « Ajouter à l'écran d'accueil ».";
             $('install-txt').textContent = t;
             $('modal-install').classList.remove('hidden');
         }
@@ -1548,6 +1562,17 @@
                 else if (manuel) toast("Aucune sortie en attente.");
             } catch (e) { info("Synchro impossible : " + String(e.message || e).slice(0, 80)); if (manuel) toast("Synchro impossible (réseau ou code propriétaire).", false); }
             finally { syncEnCours = false; }
+        }
+
+        // ---------- Lien d'accès vendeur ----------
+        async function creerLienVendeur() {
+            const nom = $('lien-nom').value.trim(), code = $('lien-code').value.trim();
+            if (!nom || !code) { toast("Entre le prénom et le code vendeur.", false); return; }
+            if (location.protocol === 'file:') { toast("Ouvre l'appli depuis le site en ligne (https) pour créer un lien utilisable.", false); return; }
+            const lien = new URL('vendeur.html', location.href).href.split('#')[0] + '#' + new URLSearchParams({ nom, code }).toString();
+            $('lien-res').textContent = lien;
+            try { if (navigator.share) { await navigator.share({ title: 'Sorties vendeur - Golden Dago', url: lien }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+            try { await navigator.clipboard.writeText(lien); toast("Lien copié ✔"); } catch (e) { toast("Copie le lien affiché ci-dessous."); }
         }
 
         // ---------- Export / sauvegarde ----------
