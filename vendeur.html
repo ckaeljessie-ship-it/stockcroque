@@ -5,6 +5,7 @@
 <link rel="manifest" href="manifest-vendeur.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Sorties Dago">
 <script src="sync-config.js"></script>
+<script src="file-ventes.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f1f5f9;color:#334155}
@@ -31,40 +32,40 @@ li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;borde
 const $ = id => document.getElementById(id);
 const load = (k, d) => { try { const x = JSON.parse(localStorage.getItem(k)); return x == null ? d : x; } catch (e) { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
-let file = load('vq', []), dernier = { c: '', t: 0 }, envoi = false;
+let file = [], dernier = { c: '', t: 0 }, envoi = false; // file = copie en mémoire de la file stockée dans IndexedDB (voir file-ventes.js)
 const FORMAT_CODE_SAC = /^([A-Z0-9]{1,8}\/[0-9]{2,6}|[0-9]{2}-[0-9]{4})$/; // ex : GM20/01
 $('nom').value = load('vnom', ''); $('pin').value = load('vpin', '');
 // Lien magique : vendeur.html#nom=Marie&code=XXXX pré-remplit prénom et code (et les mémorise)
 try { const p = new URLSearchParams(location.hash.slice(1)); const n = (p.get('nom') || '').trim().slice(0, 20), c = (p.get('code') || '').trim();
   if (n) { $('nom').value = n; save('vnom', n); } if (c) { $('pin').value = c; save('vpin', c); } } catch (e) {}
-$('nom').oninput = () => save('vnom', $('nom').value.trim()); $('pin').oninput = () => save('vpin', $('pin').value.trim());
+// le service worker n'a pas accès au localStorage : on lui range l'adresse du serveur et le code dans IndexedDB
+const memoConfig = () => { const S = window.SYNC; if (S && S.url) FV.definirMeta('cfg', { url: S.url, anonKey: S.anonKey, pin: $('pin').value.trim() }).catch(() => {}); };
+$('nom').oninput = () => save('vnom', $('nom').value.trim()); $('pin').oninput = () => { save('vpin', $('pin').value.trim()); memoConfig(); };
 function msg(ok, t) { const r = $('res'); r.className = ok ? 'ok' : 'err'; r.style.display = 'block'; r.textContent = t; if (navigator.vibrate) navigator.vibrate(ok ? 80 : [80, 60, 80]); }
 function rendre() {
   const att = file.filter(x => !x.ok).length;
   $('att').textContent = att ? `⏳ ${att} sortie(s) en attente d'envoi` : '✅ Tout est envoyé';
   $('recent').innerHTML = file.slice(-15).reverse().map(x => `<li><span>${x.code.replace(/[<>&]/g, '')}</span><span>${x.refuse ? '✖ refusé' : x.ok ? '✔ envoyé' : '⏳'}</span></li>`).join('');
 }
-async function rpc(nom, args) {
-  const S = window.SYNC; if (!S || !S.url) throw new Error('config');
-  const r = await fetch(`${S.url}/rest/v1/rpc/${nom}`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: S.anonKey, Authorization: 'Bearer ' + S.anonKey }, body: JSON.stringify(args) });
-  if (!r.ok) { const e = new Error((await r.text()) || r.status); e.http = r.status; throw e; }
+async function recharger() { try { file = await FV.tout(); } catch (e) {} rendre(); }
+// demande au téléphone d'envoyer la file dès qu'il a du réseau, même si l'appli est fermée (Chrome Android)
+async function planifierSync() {
+  try { const reg = await navigator.serviceWorker.ready; if (reg.sync) await reg.sync.register('envoyer-sorties'); } catch (e) {}
 }
 async function envoyer() {
   if (envoi) return; envoi = true;
   try {
-    for (const x of file.filter(y => !y.ok)) {
-      try { await rpc('ajouter_sortie', { pin: $('pin').value.trim(), p_uid: x.uid, p_code: x.code, p_par: x.par, p_motif: x.motif, p_ts: new Date(x.ts).toISOString() }); x.ok = true; save('vq', file); rendre(); }
-      catch (e) {
-        if (e.http && /PIN/.test(e.message)) { msg(false, 'Code vendeur incorrect'); break; }
-        if (e.http && /CODE_INVALIDE/.test(e.message)) { x.ok = true; x.refuse = true; save('vq', file); rendre(); msg(false, 'Code refusé : ' + x.code.slice(0, 20)); continue; } // ne bloque pas les suivants
-        if (e.message === 'config' && navigator.onLine) msg(false, "Liaison non configurée (sync-config.js)");
-        break; // réseau coupé ou erreur serveur : on garde la file et on réessaie plus tard
-      }
-    }
-    file = file.filter((x, i) => !x.ok || i >= file.length - 30); save('vq', file);
-  } finally { envoi = false; rendre(); }
+    memoConfig();
+    const r = await FV.envoyerFile();
+    await recharger();
+    if (r.erreur === 'pin') msg(false, 'Code vendeur incorrect');
+    else if (r.erreur === 'config' && navigator.onLine) msg(false, 'Liaison non configurée (sync-config.js)');
+    else if (r.refuses) msg(false, r.refuses + ' code(s) refusé(s) par le serveur');
+    if (r.erreur === 'reseau' || r.erreur === 'serveur') planifierSync();
+  } catch (e) { /* on garde la file, on réessaie plus tard */ }
+  finally { envoi = false; rendre(); }
 }
-function scan(brut) {
+async function scan(brut) {
   const code = String(brut).trim().toUpperCase().replace(/\s+/g, '').replace(/:/g, '/');
   if (!code) return;
   if (!FORMAT_CODE_SAC.test(code)) { msg(false, "Ce n'est pas un code de sac (ex : GM20/01)"); return; }
@@ -75,8 +76,10 @@ function scan(brut) {
   const now = Date.now();
   if (dernier.c === code && now - dernier.t < 3000) return; dernier = { c: code, t: now };
   if (file.some(x => x.code === code && now - x.ts < 86400000)) { msg(false, 'Déjà scanné : ' + code); return; }
-  file.push({ uid: (crypto.randomUUID ? crypto.randomUUID() : now + '-' + Math.random()), code, par: $('nom').value.trim(), motif: motifFinal, ts: now, ok: false });
-  save('vq', file); msg(true, 'Sortie enregistrée : ' + code); rendre(); envoyer();
+  const item = { uid: (crypto.randomUUID ? crypto.randomUUID() : now + '-' + Math.random()), code, par: $('nom').value.trim(), motif: motifFinal, ts: now, ok: false };
+  file.push(item); rendre();
+  try { await FV.ajouter(item); } catch (e) { file.pop(); rendre(); msg(false, "Impossible d'enregistrer la sortie sur ce téléphone, réessaie"); return; }
+  msg(true, 'Sortie enregistrée : ' + code); planifierSync(); envoyer();
 }
 $('motif').onchange = () => { $('client').style.display = $('motif').value === 'Crédit' ? 'block' : 'none'; };
 $('saisie').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scan($('saisie').value); $('saisie').value = ''; } });
@@ -108,7 +111,19 @@ $('photo-in').onchange = async e => {
   try { const lec = new Html5Qrcode('lecteur'); const txt = await lec.scanFile(f, false); try { lec.clear(); } catch (x) {} scan(txt); }
   catch (er) { msg(false, 'Code non lu : reprends la photo plus près et bien nette, ou tape le code.'); }
 };
-window.addEventListener('online', envoyer); setInterval(envoyer, 30000); rendre(); envoyer();
+window.addEventListener('online', envoyer); setInterval(envoyer, 30000);
+// une page ouverte est prévenue quand le service worker a envoyé des sorties en arrière-plan
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'sorties-envoyees') recharger(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) recharger(); });
+// démarrage : on reprend l'ancienne file (localStorage 'vq') une seule fois, puis on charge celle d'IndexedDB
+(async () => {
+  try {
+    const ancienne = load('vq', []);
+    for (const x of ancienne) if (x && x.uid && x.code) await FV.ajouter(x);
+    if (ancienne.length) { try { localStorage.removeItem('vq'); } catch (e) {} }
+  } catch (e) {}
+  await recharger(); memoConfig(); envoyer();
+})();
 // Installation de l'app (PWA)
 let promptInstall = null;
 const dejaInstallee = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;

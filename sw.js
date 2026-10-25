@@ -1,9 +1,10 @@
 // Garde l'appli et ses bibliothèques en cache pour qu'elle s'ouvre même sans connexion.
-const CACHE = 'stock-croquettes-v7';
+importScripts('file-ventes.js'); // file d'attente des sorties du vendeur (IndexedDB)
+const CACHE = 'stock-croquettes-v8';
 const CDN = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'unpkg.com'];
 
 const LIBS = ['https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js', 'https://cdn.tailwindcss.com'];
-const SHELL = LIBS.concat(['./', 'index.html', 'vendeur.html', 'sync-config.js', 'manifest.json', 'manifest-vendeur.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png']);
+const SHELL = LIBS.concat(['./', 'index.html', 'vendeur.html', 'sync-config.js', 'file-ventes.js', 'manifest.json', 'manifest-vendeur.json', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png']);
 self.addEventListener('install', e => {
     // pré-charge l'appli et les icônes ; une absence de réseau ne bloque pas l'installation
     e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
@@ -41,4 +42,17 @@ self.addEventListener('fetch', e => {
                 .catch(() => new Response('Hors connexion : ouvre l\'appli une fois avec du réseau.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
         );
     }
+});
+
+// Envoi des sorties du vendeur en arrière-plan : le téléphone réveille ce code dès qu'il retrouve du réseau, même appli fermée (Chrome Android).
+self.addEventListener('sync', e => {
+    if (e.tag !== 'envoyer-sorties') return;
+    e.waitUntil(FV.envoyerFile().then(async r => {
+        if (r.envoyes || r.refuses) {
+            const pages = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+            pages.forEach(c => c.postMessage({ type: 'sorties-envoyees', envoyes: r.envoyes }));
+        }
+        // réseau coupé ou serveur en panne : on lance une erreur pour que le navigateur réessaie plus tard
+        if (r.erreur === 'reseau' || r.erreur === 'serveur') throw new Error('nouvel essai');
+    }));
 });
