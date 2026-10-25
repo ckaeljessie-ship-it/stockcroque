@@ -110,6 +110,13 @@
 
         <main class="px-4 mt-4">
 
+            <div id="alerte-integrite" class="hidden mb-4">
+                <div class="bg-rose-50 border-2 border-rose-400 text-rose-800 rounded-2xl p-3 text-xs flex items-center justify-between gap-3">
+                    <span id="alerte-txt" class="font-semibold"></span>
+                    <button type="button" onclick="voirAnomalies()" class="shrink-0 px-3 py-1.5 rounded-lg bg-rose-600 text-white font-semibold active:scale-95">Voir</button>
+                </div>
+            </div>
+
             <div id="rappel-sauvegarde" class="hidden mb-4">
                 <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3 text-xs flex items-center justify-between gap-3">
                     <span id="rappel-txt"></span>
@@ -347,6 +354,24 @@
                     <input id="pin-proprio" type="password" placeholder="Code propriétaire" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
                     <button type="button" onclick="synchroVendeurs(true)" class="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm active:scale-95">Synchroniser maintenant</button>
                     <p id="sync-etat" class="text-xs text-slate-400"></p>
+                </div>
+                <div id="carte-integrite" class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">🛡️ Contrôle d'intégrité</h2>
+                    <p class="text-xs text-slate-400">L'appli vérifie seule, à chaque ouverture, que le stock, les sacs et l'historique se tiennent entre eux et que rien n'a été modifié en dehors d'elle. Les sauvegardes sont scellées avec ton code propriétaire : un fichier modifié à la main est refusé.</p>
+                    <p id="integrite-etat" class="text-sm font-semibold text-slate-600"></p>
+                    <ul id="integrite-liste" class="space-y-2"></ul>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button type="button" onclick="lancerAudit(true)" class="py-3 rounded-xl bg-indigo-50 text-indigo-700 text-sm font-semibold active:scale-95">Vérifier maintenant</button>
+                        <button type="button" onclick="accepterEtat()" class="py-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold active:scale-95">J'ai contrôlé : accepter</button>
+                    </div>
+                    <p id="integrite-journal" class="text-[11px] text-slate-400"></p>
+                </div>
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">🔑 Codes d'accès</h2>
+                    <p class="text-xs text-slate-400">Un vendeur est parti ou un téléphone est perdu ? Change le code : l'ancien cesse de marcher tout de suite. Le nouveau code est fabriqué par le serveur.</p>
+                    <button type="button" onclick="changerCode('vendeur')" class="w-full py-3 rounded-xl bg-rose-50 text-rose-700 text-sm font-semibold active:scale-95">Changer / révoquer le code vendeur</button>
+                    <button type="button" onclick="changerCode('proprio')" class="w-full py-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold active:scale-95">Changer mon code propriétaire</button>
+                    <div id="codes-res" class="hidden rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 space-y-1"></div>
                 </div>
                 <div class="bg-white rounded-2xl shadow p-4 space-y-3">
                     <h2 class="font-bold text-slate-700">📨 Lien pour un vendeur</h2>
@@ -646,6 +671,8 @@
             unites = await reqP(tx.objectStore("unites").getAll());
             produits.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
             rendreTout();
+            await sceller();
+            lancerAudit(false);
         }
 
         const unitesDe = id => unites.filter(u => u.produitId === id);
@@ -1192,7 +1219,7 @@
 
         async function toutReinitialiser() {
             if (!confirm("Remettre TOUS les stocks à 0 et effacer l'historique ?\nUne sauvegarde sera téléchargée automatiquement avant.")) return;
-            sauvegarder();
+            await sauvegarder();
             const tx = db.transaction(["produits", "historique", "unites"], "readwrite");
             const sp = tx.objectStore("produits");
             const su = tx.objectStore("unites");
@@ -1824,7 +1851,7 @@
             if (!produits.length && !historique.length && !unites.length) { if (manuel) toast("Rien à sauvegarder pour l'instant.", false); return; }
             cloudEnCours = true; cloudMsg('Envoi en cours…');
             try {
-                const data = { version: 4, date: new Date().toISOString(), produits, historique: historique.slice().reverse(), unites };
+                const data = await construireSauvegarde();
                 const { format, donnees } = await compresser(JSON.stringify(data));
                 const resume = { produits: produits.length, sacs: unites.length, mouvements: historique.length };
                 await rpcSync('deposer_sauvegarde', { pin: $('pin-proprio').value.trim(), p_format: format, p_donnees: donnees, p_resume: resume, p_appareil: (navigator.userAgent || '').slice(0, 80) });
@@ -1866,8 +1893,8 @@
             } catch (e) { toast('Sauvegarde en ligne illisible.', false); }
         }
 
-        function sauvegarder() {
-            const data = { version: 4, date: new Date().toISOString(), produits: produits, historique: historique.slice().reverse(), unites: unites };
+        async function sauvegarder() {
+            const data = await construireSauvegarde();
             telecharger(`sauvegarde-stock-${stamp()}.json`, JSON.stringify(data, null, 2), "application/json");
             try { localStorage.setItem('derniereSauvegarde', String(Date.now())); } catch (e) {}
             rendreRappel();
@@ -1890,7 +1917,12 @@
                     && data.unites.every(u => u && typeof u.code === 'string' && u.produitId != null)
                     && data.historique.every(h => h && h.id != null);
                 if (!ok) throw new Error("format");
-                if (!confirm("Remplacer toutes les données actuelles par cette sauvegarde ?")) return false;
+                const verdict = await verifierSauvegarde(data);
+                if (verdict === 'refuse') { alert("🚨 SAUVEGARDE REFUSÉE\n\nCe fichier a été modifié après sa création (ou le code propriétaire est différent). Tes données actuelles n'ont pas été touchées."); derniereAlerteNotee = ''; const j = lireJson('journalIntegrite', []); j.push({ ts: Date.now(), n: 1, t: ['Sauvegarde modifiée refusée'] }); ecrireJson('journalIntegrite', j.slice(-50)); rendreAnomalies(); return false; }
+                const incoh = auditer(data.produits, data.unites, data.historique).filter(a => a.niveau === 'grave');
+                let avert = verdict === 'non-signe' ? "⚠️ Cette sauvegarde n'est pas scellée (ancienne version) : je ne peux pas prouver qu'elle n'a pas été modifiée.\n\n" : '';
+                if (incoh.length) avert += "🚨 " + incoh.length + " incohérence(s) dans ce fichier, par exemple : " + incoh[0].titre + " — " + incoh[0].detail + "\n\n";
+                if (!confirm(avert + "Remplacer toutes les données actuelles par cette sauvegarde ?")) return false;
                 tx = db.transaction(["produits", "historique", "unites"], "readwrite");
                 const sp = tx.objectStore("produits");
                 const sh = tx.objectStore("historique");
@@ -1902,6 +1934,7 @@
                 await txDone(tx);
                 await migrerProduits();
                 toast("Sauvegarde restaurée.");
+                alerteScelle = false; derniereAlerteNotee = '';
                 await charger();
                 return true;
             } catch (e) {
@@ -1910,6 +1943,191 @@
                 toast("Fichier de sauvegarde invalide.", false);
                 return false;
             }
+        }
+
+        // ---------- Intégrité : scellés et contrôle d'anomalies ----------
+        // Empreinte = résumé unique de tout le stock (produits, sacs, historique). Le scellé = HMAC de cette empreinte avec le code propriétaire.
+        const hex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        const enc = new TextEncoder();
+        async function sha256(t) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(t))); }
+        async function hmac(cle, t) {
+            const k = await crypto.subtle.importKey('raw', enc.encode(cle + '|golden-dago'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+            return hex(await crypto.subtle.sign('HMAC', k, enc.encode(t)));
+        }
+        const codeProprio = () => { try { return ($('pin-proprio').value || '').trim(); } catch (e) { return ''; } };
+        function canonique(P, U, H) {
+            const n = v => (v == null ? 0 : v);
+            const pp = P.slice().sort((a, b) => a.id - b.id).map(p => [p.id, p.nom, p.code, p.stock, n(p.nextSerial)]);
+            const uu = U.slice().sort((a, b) => a.code < b.code ? -1 : a.code > b.code ? 1 : 0).map(u => [u.code, u.produitId, u.statut, n(u.dateEntree), n(u.dateSortie), n(u.dateManquant)]);
+            const hh = H.slice().sort((a, b) => a.id - b.id).map(h => [h.id, h.type, n(h.produitId), n(h.qte), n(h.avant), n(h.apres), n(h.ts), h.unite || '', h.par || '', h.motif || '', h.annule ? n(h.annule.ts) : 0, h.paye ? n(h.paye.ts) : 0, h.idSync == null ? '' : h.idSync]);
+            return JSON.stringify([pp, uu, hh]);
+        }
+        const empreinte = (P, U, H) => sha256(canonique(P, U, H));
+        async function lireBase() {
+            const tx = db.transaction(["produits", "historique", "unites"], "readonly");
+            return { P: await reqP(tx.objectStore("produits").getAll()), H: await reqP(tx.objectStore("historique").getAll()), U: await reqP(tx.objectStore("unites").getAll()) };
+        }
+        const lireJson = (k, d) => { try { const x = JSON.parse(localStorage.getItem(k)); return x == null ? d : x; } catch (e) { return d; } };
+        const ecrireJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+        let anomalies = [], alerteScelle = false, scelleVerifie = false;
+
+        // Scelle l'état actuel (appelé après chaque opération réussie de l'appli)
+        async function sceller() {
+            if (alerteScelle || !window.crypto || !crypto.subtle) return;
+            const pin = codeProprio();
+            if (!pin) { try { localStorage.removeItem('sceauLocal'); } catch (e) {} return; }
+            try { ecrireJson('sceauLocal', { s: await hmac(pin, await empreinte(produits, unites, historique.slice().reverse())), cle: (await sha256(pin)).slice(0, 8), ts: Date.now() }); } catch (e) {}
+        }
+        // Compare la base réelle au dernier scellé : une différence = modification faite en dehors de l'appli
+        async function verifierScelle() {
+            if (!window.crypto || !crypto.subtle) return null;
+            const sc = lireJson('sceauLocal', null), pin = codeProprio();
+            if (!sc || !pin) return null;
+            if (sc.cle !== (await sha256(pin)).slice(0, 8)) return null; // le code a changé : on rescellera
+            const b = await lireBase();
+            return (await hmac(pin, await empreinte(b.P, b.U, b.H))) === sc.s;
+        }
+
+        // Contrôle de cohérence (fonctionne aussi sur le contenu d'un fichier de sauvegarde)
+        function auditer(P, U, H) {
+            const A = [], grave = (titre, detail) => A.push({ niveau: 'grave', titre, detail }), attention = (titre, detail) => A.push({ niveau: 'attention', titre, detail });
+            const nom = id => (P.find(p => p.id === id) || {}).nom || ('produit ' + id);
+            H = H.slice().sort((a, b) => a.id - b.id);
+            P.forEach(p => { if (!Number.isInteger(p.stock) || p.stock < 0) grave('Stock impossible', `${p.nom} : ${p.stock}`); });
+            // chaque ligne d'historique doit être arithmétiquement juste
+            H.forEach(h => {
+                if (h.avant == null || h.apres == null) return;
+                const q = Number(h.qte);
+                if (h.type === 'entree' && h.apres !== h.avant + q) grave('Mouvement truqué ou corrompu', `Entrée n°${h.id} (${h.produit}) : ${h.avant} + ${q} ≠ ${h.apres}`);
+                if (h.type === 'sortie' && h.apres !== h.avant - q) grave('Mouvement truqué ou corrompu', `Sortie n°${h.id} (${h.produit}) : ${h.avant} − ${q} ≠ ${h.apres}`);
+            });
+            // l'historique rejoué (dans l'ordre des numéros) doit retomber exactement sur le stock actuel de chaque produit.
+            // Une annulation peut avoir eu lieu entre deux lignes : on l'accepte seulement si elle explique l'écart.
+            P.forEach(p => {
+                const adds = H.filter(h => h.produitId === p.id && h.avant != null && h.apres != null);
+                if (!adds.length) return;
+                const annul = adds.filter(h => h.annule).sort((x, y) => x.annule.ts - y.annule.ts);
+                const appliquees = new Set();
+                const delta = h => -(h.apres - h.avant);
+                let r = null, casse = false;
+                for (const h of adds) {
+                    if (r !== null && h.avant !== r) {
+                        let t = r, trouve = false; const prises = [];
+                        for (const c of annul) {
+                            if (appliquees.has(c.id) || c.id >= h.id) continue;
+                            t += delta(c); prises.push(c);
+                            if (h.avant === t) { trouve = true; break; }
+                        }
+                        if (!trouve) { grave('Stock modifié hors mouvement', `${nom(p.id)} : le mouvement n°${h.id} part de ${h.avant} alors que le stock devait être ${r}`); casse = true; break; }
+                        prises.forEach(c => appliquees.add(c.id)); r = t;
+                    }
+                    r = h.apres;
+                }
+                if (casse) return;
+                annul.forEach(c => { if (!appliquees.has(c.id)) r += delta(c); });
+                if (r !== p.stock) grave('Stock modifié hors mouvement', `${nom(p.id)} : l'historique donne ${r} sac(s), le stock affiche ${p.stock}`);
+            });
+            // lignes d'historique supprimées (numéros manquants)
+            if (H.length > 1) { const manq = (H[H.length - 1].id - H[0].id + 1) - H.length; if (manq > 0) grave('Historique effacé', `${manq} ligne(s) d'historique manquent dans la suite des numéros`); }
+            // sacs codés
+            const sorties = new Map();
+            H.forEach(h => { if (h.type === 'sortie' && !h.annule) { const l = [].concat(h.unite || [], h.unitesSorties || []); l.forEach(c => sorties.set(c, (sorties.get(c) || 0) + 1)); } });
+            sorties.forEach((n, c) => { if (n > 1) grave('Sac sorti deux fois', `${c} apparaît ${n} fois en sortie`); });
+            U.forEach(u => { if (u.statut === 'sorti' && !sorties.has(u.code)) grave('Sac sorti sans mouvement', `${u.code} est marqué sorti mais aucune sortie n'est enregistrée`); });
+            sorties.forEach((n, c) => { const u = U.find(x => x.code === c); if (u && u.statut !== 'sorti') attention('Sortie sans sac correspondant', `${c} a une sortie enregistrée mais n'est pas marqué sorti`); });
+            P.forEach(p => { const nb = U.filter(u => u.produitId === p.id && u.statut === 'en_stock').length; if (nb > p.stock) grave('Plus de sacs codés que de stock', `${p.nom} : ${nb} sac(s) codés en stock pour un stock de ${p.stock}`); });
+            // alertes d'attention : tentatives de sortie refusées, sacs manquants, pertes déclarées
+            const mois = Date.now() - 30 * 86400000;
+            const refus = H.filter(h => h.type === 'anomalie' && h.ts >= mois && !/^Anomalies acceptées/.test(h.motif || '')).length;
+            if (refus) attention('Sorties refusées (30 j)', `${refus} sortie(s) de vendeur refusée(s) : code inconnu, sac déjà sorti ou stock à 0. À vérifier dans l'historique.`);
+            const manq = U.filter(u => u.statut === 'manquant').length;
+            if (manq) attention('Sacs manquants', `${manq} sac(s) déclaré(s) manquant(s) lors d'un inventaire`);
+            const pertes = H.filter(h => h.type === 'sortie' && !h.annule && h.ts >= mois && h.motif && !/^(Vente|Crédit)/i.test(h.motif)).reduce((t, h) => t + (Number(h.qte) || 0), 0);
+            if (pertes >= 3) attention('Pertes déclarées (30 j)', `${pertes} sac(s) sortis pour « abîmé / autre / retour » ce mois-ci`);
+            return A;
+        }
+        function rendreAnomalies() {
+            const g = anomalies.filter(a => a.niveau === 'grave').length, w = anomalies.length - g;
+            const el = $('alerte-integrite');
+            if (g || alerteScelle) { el.classList.remove('hidden'); $('alerte-txt').textContent = `🚨 ${alerteScelle ? 'Les données ont été modifiées en dehors de l\'appli' + (g ? ' et ' : '') : ''}${g ? g + ' anomalie(s) grave(s)' : ''} : contrôle nécessaire.`; }
+            else el.classList.add('hidden');
+            $('integrite-etat').textContent = alerteScelle || g ? '🚨 Anomalies détectées' : w ? '⚠️ Points à surveiller' : '✅ Tout est cohérent';
+            $('integrite-etat').className = 'text-sm font-semibold ' + (alerteScelle || g ? 'text-rose-600' : w ? 'text-amber-600' : 'text-emerald-600');
+            const lignes = [];
+            if (alerteScelle) lignes.push({ niveau: 'grave', titre: 'Scellé brisé', detail: "La base du téléphone ne correspond plus à son dernier scellé : quelqu'un a modifié les données sans passer par l'appli (ou la base a été restaurée par le navigateur). Compare avec une sauvegarde en ligne." });
+            $('integrite-liste').innerHTML = lignes.concat(anomalies).map(a => `<li class="rounded-lg p-2 text-xs ${a.niveau === 'grave' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}"><b>${a.niveau === 'grave' ? '🚨' : '⚠️'} ${esc(a.titre)}</b><br>${esc(a.detail)}</li>`).join('');
+            const j = lireJson('journalIntegrite', []);
+            $('integrite-journal').textContent = j.length ? 'Dernières alertes : ' + j.slice(-3).reverse().map(x => new Date(x.ts).toLocaleDateString('fr-FR') + ' (' + x.n + ')').join(', ') : (codeProprio() ? '' : "Entre ton code propriétaire (carte « Sorties des vendeurs ») pour activer les scellés.");
+        }
+        let derniereAlerteNotee = '';
+        async function lancerAudit(manuel) {
+            try {
+                if (alerteScelle === false && scelleVerifie) { const ok = await verifierScelle(); if (ok === false) alerteScelle = true; }
+                const b = await lireBase();   // on relit la vraie base (pas la copie en mémoire)
+                const acceptees = lireJson('anomaliesAcceptees', {});
+                anomalies = auditer(b.P, b.U, b.H).map(a => (a.niveau === 'grave' && acceptees[a.titre + '|' + a.detail]) ? { niveau: 'attention', titre: a.titre + ' (acceptée)', detail: a.detail + ' · acceptée le ' + new Date(acceptees[a.titre + '|' + a.detail]).toLocaleDateString('fr-FR') } : a);
+            } catch (e) { anomalies = []; }
+            const graves = anomalies.filter(a => a.niveau === 'grave');
+            const cle = (alerteScelle ? 'S|' : '') + graves.map(a => a.titre + a.detail).join('|');
+            if (cle && cle !== derniereAlerteNotee) { derniereAlerteNotee = cle; const j = lireJson('journalIntegrite', []); j.push({ ts: Date.now(), n: graves.length + (alerteScelle ? 1 : 0), t: graves.slice(0, 5).map(a => a.titre) }); ecrireJson('journalIntegrite', j.slice(-50)); }
+            rendreAnomalies();
+            if (manuel) toast(alerteScelle || graves.length ? 'Anomalies détectées.' : anomalies.length ? 'Points à surveiller.' : 'Tout est cohérent ✔', !(alerteScelle || graves.length));
+        }
+        function voirAnomalies() { setTab('outils'); setTimeout(() => $('carte-integrite').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }
+        // Le propriétaire a contrôlé : on garde une trace datée dans l'historique, puis on rescelle l'état actuel
+        async function accepterEtat() {
+            if (!codeProprio()) { toast("Entre d'abord ton code propriétaire.", false); return; }
+            if (!exigerOperateur()) return;
+            if (anomalies.some(a => a.niveau === 'grave') || alerteScelle) { if (!confirm("Accepter l'état actuel malgré les anomalies ? Une ligne « anomalies acceptées » sera ajoutée à l'historique avec ton nom.")) return; }
+            const graves = anomalies.filter(a => a.niveau === 'grave').length + (alerteScelle ? 1 : 0);
+            // on retient les anomalies acceptées : elles ne déclenchent plus l'alarme tant qu'elles ne changent pas
+            const acc = lireJson('anomaliesAcceptees', {}); anomalies.filter(a => a.niveau === 'grave').forEach(a => { acc[a.titre + '|' + a.detail] = Date.now(); }); ecrireJson('anomaliesAcceptees', acc);
+            if (graves) { const tx = db.transaction("historique", "readwrite"); tx.objectStore("historique").add({ produit: 'Contrôle', type: 'anomalie', qte: 0, ts: Date.now(), par: operateur, motif: `Anomalies acceptées par ${operateur} (${graves})` }); await txDone(tx); }
+            alerteScelle = false; derniereAlerteNotee = '';
+            await charger(); toast('État accepté et scellé.');
+        }
+
+        // Sauvegarde signée : un fichier modifié à la main ne passe plus la vérification
+        async function construireSauvegarde() {
+            const data = JSON.parse(JSON.stringify({ version: 5, date: new Date().toISOString(), produits, historique: historique.slice().reverse(), unites })); // copie : on ne touche jamais aux données vivantes
+            const pin = codeProprio();
+            if (pin && window.crypto && crypto.subtle) { data.empreinte = await empreinte(data.produits, data.unites, data.historique); data.sceau = await hmac(pin, data.empreinte); data.cle = (await sha256(pin)).slice(0, 8); }
+            return data;
+        }
+        // Retourne 'ok', 'non-signe' ou 'refuse'
+        async function verifierSauvegarde(data) {
+            if (!data.sceau) return 'non-signe';
+            const calc = await empreinte(data.produits, data.unites, data.historique);
+            if (calc !== data.empreinte) return 'refuse';
+            for (let essai = 0; essai < 2; essai++) {
+                const pin = essai === 0 ? codeProprio() : (prompt("Cette sauvegarde n'a pas été scellée avec le code actuel. Entre le code propriétaire utilisé quand elle a été faite (laisse vide pour annuler) :") || '').trim();
+                if (!pin) continue;
+                if (await hmac(pin, calc) === data.sceau) return 'ok';
+            }
+            return 'refuse';
+        }
+
+        // ---------- Codes d'accès ----------
+        async function changerCode(quel) {
+            const pin = codeProprio();
+            if (!pin) { toast("Entre d'abord ton code propriétaire (carte « Sorties des vendeurs »).", false); return; }
+            if (!window.SYNC || !window.SYNC.url) { toast('Liaison Supabase non configurée.', false); return; }
+            const msg = quel === 'vendeur' ? "Changer le code vendeur ?\nL'ancien code cessera de marcher tout de suite : il faudra donner le nouveau à chaque vendeur." : "Changer ton code propriétaire ?\nNote bien le nouveau code : il remplace l'ancien partout.";
+            if (!confirm(msg)) return;
+            try {
+                const nouveau = await rpcSync('changer_code', { pin, p_quel: quel === 'vendeur' ? 'vendeur' : 'proprio' });
+                const el = $('codes-res'); el.classList.remove('hidden');
+                if (quel === 'proprio') {
+                    // on enregistre tout de suite le nouveau code ici, puis on rescelle avec lui
+                    $('pin-proprio').value = nouveau; try { localStorage.setItem('pinProprio', nouveau); } catch (e) {}
+                    if (!alerteScelle) await sceller();
+                    el.innerHTML = `<b>Nouveau code propriétaire :</b><div class="font-mono text-base select-all">${esc(nouveau)}</div>Note-le dans un endroit sûr. Les anciennes sauvegardes demanderont l'ancien code pour être restaurées.`;
+                } else {
+                    $('lien-code').value = nouveau;
+                    el.innerHTML = `<b>Nouveau code vendeur :</b><div class="font-mono text-base select-all">${esc(nouveau)}</div>Crée un nouveau lien ci-dessous et envoie-le à tes vendeurs. Ceux qui ont des sorties en attente les enverront dès qu'ils auront le nouveau code.`;
+                }
+                toast('Code changé ✔');
+            } catch (e) { toast(/PIN/.test(String(e.message)) ? 'Code propriétaire incorrect.' : 'Impossible de changer le code (réseau ?).', false); }
         }
 
         // ---------- Réglages ----------
@@ -1959,6 +2177,8 @@
 
             try {
                 db = await ouvrirBase();
+                try { if ((await verifierScelle()) === false) alerteScelle = true; } catch (e) {}
+                scelleVerifie = true;
                 await migrerProduits();
                 await charger();
             } catch (e) {
@@ -1971,6 +2191,7 @@
             setTimeout(sauvegardeAutoCloud, 15000);
             setInterval(sauvegardeAutoCloud, 3600000);
             window.addEventListener('online', () => setTimeout(sauvegardeAutoCloud, 5000));
+            document.addEventListener('visibilitychange', () => { if (!document.hidden && db) lancerAudit(false); });
         })();
     </script>
 </body>

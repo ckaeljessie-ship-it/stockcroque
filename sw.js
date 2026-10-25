@@ -1,6 +1,6 @@
 // Garde l'appli et ses bibliothèques en cache pour qu'elle s'ouvre même sans connexion.
 importScripts('file-ventes.js'); // file d'attente des sorties du vendeur (IndexedDB)
-const CACHE = 'stock-croquettes-v9';
+const CACHE = 'stock-croquettes-v10';
 const CDN = ['cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'unpkg.com'];
 
 const LIBS = ['https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js', 'https://cdn.tailwindcss.com'];
