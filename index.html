@@ -32,6 +32,43 @@
         .etiquettes-grid .etiquette svg { width: 100%; }
         #lecteur video { border-radius: 12px; }
 
+
+        /* ===== Version ordinateur (écran large) : plein écran, menu à gauche, cartes en colonnes. Le téléphone ne change pas. ===== */
+        .btn-plein { display: none; }
+        @media screen and (min-width: 1024px) {
+            body { background: #f1f5f9; }
+            #app-wrap { max-width: none !important; margin: 0 !important; padding: 0 28px 40px 248px !important; }
+            #app-wrap > header { border-radius: 0 0 28px 28px; padding: 22px 28px 64px; margin: 0 -28px 0 -28px; }
+            #app-wrap > header h1 { font-size: 1.6rem; }
+            #app-wrap > header #operateur { font-size: 15px; }
+            #app-wrap > header > div:nth-child(2) { max-width: 420px; }
+            .btn-plein { display: inline-flex; align-items: center; gap: 6px; }
+            #app-wrap > div.grid { max-width: 960px; gap: 16px; padding-left: 0; padding-right: 0; }
+            #app-wrap > div.grid > div { padding: 18px; }
+            #app-wrap > div.grid .text-2xl { font-size: 2rem; }
+            #app-wrap > main { padding-left: 0; padding-right: 0; max-width: 1500px; }
+            /* menu à gauche à la place de la barre du bas */
+            nav.fixed { top: 0; bottom: 0; left: 0; right: auto; width: 224px; border-top: 0; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 16px rgba(15,23,42,.04); padding: 22px 12px; }
+            nav.fixed > div { display: flex; flex-direction: column; gap: 6px; max-width: none; margin: 0; font-size: 15px; }
+            nav.fixed .nav-btn { flex-direction: row; justify-content: flex-start; gap: 12px; padding: 13px 16px; border-radius: 14px; font-size: 15px; }
+            nav.fixed .nav-btn span { font-size: 1.35rem; }
+            nav.fixed .nav-btn:hover { background: #f1f5f9; }
+            nav.fixed .nav-btn.text-indigo-600 { background: #eef2ff; }
+            nav.fixed::before { content: "Golden Dago"; display: block; font-weight: 800; font-size: 18px; color: #4338ca; padding: 0 16px 18px; }
+            /* contenu des onglets : plusieurs cartes côte à côte */
+            section[id^="tab-"]:not(.hidden) { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 18px; align-items: start; }
+            section[id^="tab-"] > * { margin: 0 !important; }
+            section[id^="tab-"] > .space-y-4 > * + *, section[id^="tab-"] > .space-y-3 > * + * { margin-top: 12px; }
+            #tab-stock > *, #tab-historique > #bloc-creances { grid-column: auto; }
+            #tab-historique > :last-child, #tab-stock > :last-child { grid-column: 1 / -1; }
+            #liste-stocks, #liste-historique, #liste-creances { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+            #liste-stocks > *, #liste-historique > *, #liste-creances > * { margin: 0 !important; }
+            .etiquettes-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+            #modal-inv > div, #modal-install > div { max-width: 560px; }
+            #toast { top: 18px; }
+        }
+        @media screen and (min-width: 1500px) { section[id^="tab-"]:not(.hidden) { grid-template-columns: repeat(3, 1fr); } }
+
         /* Impression : seules les étiquettes sont imprimées, page par page (aucune étiquette coupée entre deux pages) */
         #print-area { display: none; }
         .page-etq { box-sizing: border-box; display: grid; overflow: hidden; background: #fff; }
@@ -70,7 +107,7 @@
     </div>
     <div id="toast" class="fixed top-3 left-1/2 -translate-x-1/2 z-50 hidden max-w-sm w-[92%] px-4 py-3 rounded-xl shadow-lg text-sm font-semibold text-white text-center"></div>
 
-    <div class="max-w-md mx-auto min-h-screen pb-28">
+    <div id="app-wrap" class="max-w-md mx-auto min-h-screen pb-28">
 
         <!-- En-tête -->
         <header class="bg-gradient-to-br from-indigo-700 via-indigo-600 to-blue-500 text-white px-4 pt-6 pb-14 rounded-b-3xl shadow-lg">
@@ -89,6 +126,7 @@
                 </label>
                 <button id="btn-install" type="button" onclick="installerApp()"
                         class="hidden shrink-0 bg-white text-indigo-700 font-bold text-xs px-3 py-2.5 rounded-xl shadow active:scale-95">📲 Télécharger l'app</button>
+                <button id="btn-plein" type="button" onclick="basculerPleinEcran()" class="btn-plein shrink-0 bg-white/15 text-white font-bold text-xs px-3 py-2.5 rounded-xl active:scale-95">⛶ Plein écran</button>
             </div>
         </header>
 
@@ -2129,6 +2167,15 @@
                 toast('Code changé ✔');
             } catch (e) { toast(/PIN/.test(String(e.message)) ? 'Code propriétaire incorrect.' : 'Impossible de changer le code (réseau ?).', false); }
         }
+
+        // ---------- Plein écran (ordinateur) ----------
+        function basculerPleinEcran() {
+            try {
+                if (document.fullscreenElement) document.exitFullscreen();
+                else document.documentElement.requestFullscreen().catch(() => toast("Plein écran refusé par le navigateur : essaie la touche F11.", false));
+            } catch (e) { toast("Plein écran indisponible : essaie la touche F11.", false); }
+        }
+        document.addEventListener('fullscreenchange', () => { const b = $('btn-plein'); if (b) b.textContent = document.fullscreenElement ? '⛶ Quitter le plein écran' : '⛶ Plein écran'; });
 
         // ---------- Réglages ----------
         function chargerSeuil() {
