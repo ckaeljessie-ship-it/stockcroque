@@ -578,6 +578,7 @@
         const $ = id => document.getElementById(id);
         const pad = (n, l) => String(n).padStart(l, '0');
         const codeUnite = (codeProduit, serial) => `${codeProduit}/${pad(serial, 2)}`;
+        const signe = n => n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0'; // écart avec son signe : +2, −1, 0
         const reqP = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
         const txDone = tx => new Promise((res, rej) => {
             tx.oncomplete = () => res();
@@ -939,8 +940,8 @@
                 const cfg = {
                     entree:     { ico: '➕', cls: 'text-emerald-600', txt: `Entrée +${h.qte}` },
                     sortie:     { ico: '➖', cls: 'text-rose-600',    txt: `Sortie −${h.qte}` },
-                    inventaire: { ico: '📋', cls: 'text-amber-600',   txt: `Inventaire → ${h.qte}` },
-                    inv_scan:   { ico: '📋', cls: 'text-amber-600',   txt: h.conforme ? 'Inventaire par scan : conforme' : `Inventaire scan : ${(h.unitesManquantes || []).length} manquant(s), ${(h.unitesRetrouvees || []).length} remis en stock` },
+                    inventaire: { ico: '📋', cls: (h.apres - h.avant) < 0 ? 'text-rose-600' : 'text-amber-600', txt: `Inventaire → ${h.qte}` + (Number.isFinite(h.apres - h.avant) ? ` (écart ${signe(h.apres - h.avant)})` : '') },
+                    inv_scan:   { ico: '📋', cls: 'text-amber-600',   txt: h.conforme ? 'Inventaire par scan : conforme' : `Inventaire scan : ${(h.unitesManquantes || []).length} manquant(s), ${(h.unitesRetrouvees || []).length} remis en stock` + (Number.isFinite(h.apres - h.avant) ? ` (écart ${signe(h.apres - h.avant)})` : '') },
                     manquant:   { ico: '⚠️', cls: 'text-rose-600',    txt: `${h.qte} sac(s) déclaré(s) manquant(s)` },
                     anomalie:   { ico: '🚨', cls: 'text-rose-600',    txt: `Sortie vendeur refusée : ${esc(h.motif || '')}` }
                 }[h.type] || { ico: '•', cls: 'text-slate-600', txt: `${h.type} ${h.qte}` };
@@ -977,6 +978,13 @@
             const verrou = (typeCourant === 'sortie' && q > p.stock - codes) || (typeCourant === 'inventaire' && q < codes);
             const invalide = nouveau < 0 || verrou;
             el.className = "text-center text-sm font-semibold rounded-xl py-2.5 " + (invalide ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-600");
+            if (typeCourant === 'inventaire' && !verrou && nouveau >= 0) {
+                // écart calculé tout seul : négatif = il manque des sacs
+                const e = nouveau - p.stock;
+                el.className = "text-center text-sm font-semibold rounded-xl py-2.5 " + (e < 0 ? "bg-rose-50 text-rose-600" : e > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700");
+                el.textContent = `Attendu ${p.stock} · compté ${nouveau} · écart ${signe(e)}` + (e < 0 ? ` (${-e} manquant${-e > 1 ? 's' : ''})` : e > 0 ? ' (en trop)' : ' ✔ conforme');
+                return;
+            }
             el.textContent = verrou ? `🔒 ${codes} sac(s) codé(s) : à scanner dans l'onglet Scan` : nouveau < 0 ? `⚠️ Stock insuffisant (il reste ${p.stock})` : `Nouveau stock : ${p.stock} → ${nouveau}`;
         }
 
@@ -1070,7 +1078,7 @@
                 const ligne = { produitId: produit.id, produit: produit.nom, type: typeCourant, qte: quantite, avant: avant, apres: apres, ts: Date.now(), par: operateur };
                 sh.add(ligne);
                 await txDone(tx);
-                toast(`✔ ${produit.nom} : ${avant} → ${apres}`);
+                toast(typeCourant === 'inventaire' ? `📋 ${produit.nom} : écart ${signe(apres - avant)} (${avant} → ${apres})` : `✔ ${produit.nom} : ${avant} → ${apres}`, !(typeCourant === 'inventaire' && apres < avant));
                 definirQte(1);
                 await charger();
             } catch (e) {
@@ -1708,6 +1716,13 @@
             if (!manquants.length && !retrouves.length) h += '<p class="font-bold text-emerald-600">✅ Tout est conforme.</p>';
             if (manquants.length) h += `<div class="bg-rose-50 text-rose-700 rounded-xl p-3"><b>❌ ${manquants.length} sac(s) manquant(s)</b><div class="text-xs font-mono mt-1">${manquants.slice(0, 40).map(u => esc(u.code) + ' · ' + esc(nom(u.code))).join('<br>')}${manquants.length > 40 ? '<br>…' : ''}</div></div>`;
             if (retrouves.length) h += `<div class="bg-amber-50 text-amber-700 rounded-xl p-3"><b>⚠️ ${retrouves.length} sac(s) présent(s) à remettre en stock</b><div class="text-xs font-mono mt-1">${retrouves.slice(0, 40).map(u => esc(u.code) + ' (' + u.statut + ')').join('<br>')}</div></div>`;
+            if (manquants.length || retrouves.length) {
+                // écart de stock par produit, calculé automatiquement (négatif = il manque des sacs)
+                const par = new Map();
+                manquants.forEach(u => par.set(u.produitId, (par.get(u.produitId) || 0) - 1));
+                retrouves.forEach(u => par.set(u.produitId, (par.get(u.produitId) || 0) + 1));
+                h += `<div class="bg-slate-50 rounded-xl p-3"><b>Écart de stock par produit</b>` + [...par].map(([id, e]) => { const pr = produits.find(x => x.id === id); return `<div class="flex justify-between"><span>${esc(pr ? pr.nom : '')}</span><b class="${e < 0 ? 'text-rose-600' : 'text-amber-600'}">${esc(signe(e))}</b></div>`; }).join('') + `</div>`;
+            }
             $('inv-rapport').innerHTML = h;
             $('modal-inv').classList.remove('hidden');
         }
@@ -2078,6 +2093,8 @@
             const mois = Date.now() - 30 * 86400000;
             const refus = H.filter(h => h.type === 'anomalie' && h.ts >= mois && !/^Anomalies acceptées/.test(h.motif || '')).length;
             if (refus) attention('Sorties refusées (30 j)', `${refus} sortie(s) de vendeur refusée(s) : code inconnu, sac déjà sorti ou stock à 0. À vérifier dans l'historique.`);
+            const perdusInv = H.filter(h => (h.type === 'inventaire' || h.type === 'inv_scan') && !h.annule && h.ts >= mois && Number.isFinite(h.apres - h.avant) && h.apres < h.avant).reduce((t, h) => t + (h.avant - h.apres), 0);
+            if (perdusInv) attention('Écarts d\'inventaire (30 j)', `${signe(-perdusInv)} sac(s) en moins constatés lors des inventaires ce mois-ci`);
             const manq = U.filter(u => u.statut === 'manquant').length;
             if (manq) attention('Sacs manquants', `${manq} sac(s) déclaré(s) manquant(s) lors d'un inventaire`);
             const pertes = H.filter(h => h.type === 'sortie' && !h.annule && h.ts >= mois && h.motif && !/^(Vente|Crédit)/i.test(h.motif)).reduce((t, h) => t + (Number(h.qte) || 0), 0);
