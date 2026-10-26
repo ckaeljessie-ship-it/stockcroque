@@ -6,8 +6,8 @@
   "start_url": "./vendeur.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#4338ca",
-  "theme_color": "#4338ca",
+  "background_color": "#2f2c26",
+  "theme_color": "#2f2c26",
   "lang": "fr",
   "icons": [
     {

@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html lang="fr"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#4338ca"><title>Sorties vendeur - Golden Dago</title>
+<meta name="theme-color" content="#2f2c26"><title>Sorties vendeur - Golden Dago</title>
 <link rel="manifest" href="manifest-vendeur.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Sorties Dago">
 <script src="sync-config.js"></script>
 <script src="file-ventes.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f1f5f9;color:#334155}
-header{background:linear-gradient(135deg,#4338ca,#3b82f6);color:#fff;padding:20px 16px;display:flex;gap:12px;align-items:center;border-radius:0 0 24px 24px}
-header img{width:52px;height:52px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.4)}h1{margin:0;font-size:20px}header p{margin:2px 0 0;font-size:12px;opacity:.85}
-main{max-width:440px;margin:0 auto;padding:16px;display:grid;gap:12px}.c{background:#fff;border-radius:16px;padding:14px;box-shadow:0 1px 4px #0001;display:grid;gap:10px}
-input,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:12px;font-size:16px;background:#fff}
-button{padding:14px;border:0;border-radius:12px;font-weight:700;font-size:15px;color:#fff;background:#4338ca}button.g{background:#e11d48}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#f4f2ee;color:#292622}
+header{background:linear-gradient(135deg,#2f2c26,#946f24);color:#fff;padding:20px 16px;display:flex;gap:12px;align-items:center;border-radius:0 0 24px 24px}
+header img{width:52px;height:52px;border-radius:50%;box-shadow:0 0 0 2px #d4ac5a}h1{margin:0;font-size:20px}header p{margin:2px 0 0;font-size:12px;opacity:.85}
+main{max-width:440px;margin:0 auto;padding:16px;display:grid;gap:12px}.c{background:#fff;border-radius:16px;padding:14px;box-shadow:0 1px 2px rgba(27,25,22,.05),0 6px 18px -8px rgba(27,25,22,.12);border:1px solid #e6e2da;display:grid;gap:10px}
+input,select{width:100%;padding:12px;border:1px solid #d2cdc2;border-radius:12px;font-size:16px;background:#fff;min-height:48px}input:focus,select:focus{outline:none;border-color:#b58a34;box-shadow:0 0 0 3px rgba(181,138,52,.35)}
+button{min-height:50px;padding:14px;border:0;border-radius:12px;font-weight:700;font-size:15px;color:#fff;background:#2f2c26}button.g{background:#9f1239}
 #res{border-radius:12px;padding:14px;font-weight:700;text-align:center;display:none}.ok{background:#d1fae5;color:#065f46}.err{background:#ffe4e6;color:#9f1239}
 li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f1f5f9;font-family:monospace}ul{margin:0;padding:0;list-style:none}
 #lecteur{display:none;border-radius:12px;overflow:hidden;background:#000}
@@ -25,7 +25,7 @@ li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;borde
   <input id="client" placeholder="Nom du client (crédit)" maxlength="20" autocomplete="off" style="display:none"></div>
  <div class="c"><div id="lecteur"></div><button class="g" id="cam" type="button">📷 Scanner un sac</button><button class="g" id="photo" type="button">📸 Photo du code (sans autorisation)</button><input id="photo-in" type="file" accept="image/*" capture="environment" style="display:none">
   <input id="saisie" placeholder="ou tape / scanne le code ici" autocapitalize="characters" autocomplete="off"><div id="res"></div></div>
- <div class="c" id="bloc-install" style="display:none"><button type="button" id="btn-install" style="background:#4338ca">📲 Télécharger l'app</button><div id="install-txt" style="display:none;font-size:13px;line-height:1.4"></div></div>
+ <div class="c" id="bloc-install" style="display:none"><button type="button" id="btn-install" style="background:#2f2c26">📲 Télécharger l'app</button><div id="install-txt" style="display:none;font-size:13px;line-height:1.4"></div></div>
  <div class="c"><b id="att">Aucune sortie en attente</b><ul id="recent"></ul></div>
 </main>
 <script>

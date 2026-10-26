@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#4338ca">
+    <meta name="theme-color" content="#2f2c26">
     <link rel="manifest" href="manifest.json">
     <script src="sync-config.js"></script>
     <link rel="icon" type="image/png" href="icon-192.png">
@@ -13,6 +13,15 @@
     <meta name="apple-mobile-web-app-title" content="Stock Dago">
     <title>Stock Croquettes - Golden Dago</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Thème « Ardoise & Or » : on redéfinit les palettes utilisées par l'appli (aucun changement de fonctionnement)
+        const ENCRE = { 50: '#f6f4ef', 100: '#ece8dd', 200: '#dcd5c1', 300: '#bdb398', 400: '#8d8670', 500: '#5f5a4b', 600: '#2f2c26', 700: '#24221d', 800: '#1a1814', 900: '#11100d' };
+        if (window.tailwind) tailwind.config = { theme: { extend: { colors: {
+            indigo: ENCRE, sky: ENCRE,
+            blue: { 400: '#d4ac5a', 500: '#b58a34', 600: '#946f24' },
+            slate: { 50: '#faf9f7', 100: '#f4f2ee', 200: '#e6e2da', 300: '#d2cdc2', 400: '#a39d90', 500: '#78726a', 600: '#57524b', 700: '#3f3b35', 800: '#292622', 900: '#1b1916' }
+        }, fontFamily: { sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'] } } } };
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
@@ -32,6 +41,27 @@
         .etiquettes-grid .etiquette svg { width: 100%; }
         #lecteur video { border-radius: 12px; }
 
+
+
+        /* ===== Design « Ardoise & Or » : sobre, lisible, facile à toucher ===== */
+        body { background: #f4f2ee; color: #292622; font-feature-settings: "tnum" 1; -webkit-font-smoothing: antialiased; }
+        h1, h2, h3 { letter-spacing: -.005em; }
+        .bg-white.rounded-2xl.shadow, .bg-white.rounded-2xl.shadow-lg { box-shadow: 0 1px 2px rgba(27,25,22,.05), 0 6px 18px -8px rgba(27,25,22,.10); border: 1px solid #e6e2da; }
+        header.bg-gradient-to-br { box-shadow: 0 10px 30px -12px rgba(27,25,22,.55); }
+        input:focus, select:focus, textarea:focus { outline: none !important; box-shadow: 0 0 0 3px rgba(181,138,52,.35) !important; border-color: #b58a34 !important; }
+        button { transition: transform .08s ease, background-color .15s ease, box-shadow .15s ease; }
+        button:focus-visible { outline: 3px solid rgba(181,138,52,.55); outline-offset: 2px; }
+        .bg-indigo-600 { box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 2px 6px -2px rgba(27,25,22,.45); }
+        @media (hover: hover) { .bg-indigo-600:hover { background-color: #1a1814; } }
+        /* gros doigts : zones de toucher confortables, texte des champs à 16 px (pas de zoom automatique sur téléphone) */
+        @media (pointer: coarse) { button, select, input:not([type=checkbox]):not([type=file]) { min-height: 46px; } }
+        @media screen and (max-width: 1023px) {
+            input, select, textarea { font-size: 16px !important; }
+            nav.fixed .nav-btn { font-size: 11px; padding-top: 9px; padding-bottom: 9px; }
+            nav.fixed .nav-btn span { font-size: 1.35rem; }
+            nav.fixed .nav-btn.text-indigo-600 { position: relative; }
+            nav.fixed .nav-btn.text-indigo-600::before { content: ''; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; border-radius: 0 0 4px 4px; background: #b58a34; }
+        }
 
         /* ===== Version ordinateur (écran large) : plein écran, menu à gauche, cartes en colonnes. Le téléphone ne change pas. ===== */
         .btn-plein { display: none; }
@@ -53,8 +83,8 @@
             nav.fixed .nav-btn { flex-direction: row; justify-content: flex-start; gap: 12px; padding: 13px 16px; border-radius: 14px; font-size: 15px; }
             nav.fixed .nav-btn span { font-size: 1.35rem; }
             nav.fixed .nav-btn:hover { background: #f1f5f9; }
-            nav.fixed .nav-btn.text-indigo-600 { background: #eef2ff; }
-            nav.fixed::before { content: "Golden Dago"; display: block; font-weight: 800; font-size: 18px; color: #4338ca; padding: 0 16px 18px; }
+            nav.fixed .nav-btn.text-indigo-600 { background: #f1ede2; box-shadow: inset 3px 0 0 #b58a34; }
+            nav.fixed::before { content: "Golden Dago"; display: block; font-weight: 800; font-size: 18px; letter-spacing: .02em; color: #2f2c26; padding: 0 16px 18px; }
             /* contenu des onglets : plusieurs cartes côte à côte */
             section[id^="tab-"]:not(.hidden) { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 18px; align-items: start; }
             section[id^="tab-"] > * { margin: 0 !important; }
@@ -112,7 +142,7 @@
         <!-- En-tête -->
         <header class="bg-gradient-to-br from-indigo-700 via-indigo-600 to-blue-500 text-white px-4 pt-6 pb-14 rounded-b-3xl shadow-lg">
             <div class="flex items-center gap-3">
-                <div class="w-14 h-14 shrink-0 rounded-full shadow-lg ring-2 ring-white/40"><svg viewBox="0 0 100 100" class="w-full h-full" aria-label="Golden Dago"><circle cx="50" cy="50" r="47" fill="#FFF6DD"/><ellipse cx="22" cy="48" rx="11" ry="22" transform="rotate(14 22 48)" fill="#B9791F"/><ellipse cx="78" cy="48" rx="11" ry="22" transform="rotate(-14 78 48)" fill="#B9791F"/><ellipse cx="50" cy="52" rx="29" ry="27" fill="#F4B942"/><path d="M42 27q8-9 16 0q-8 4-16 0z" fill="#F9CE72"/><ellipse cx="50" cy="63" rx="16" ry="12.5" fill="#FFEBC0"/><circle cx="39" cy="49" r="3.8" fill="#2b1a0a"/><circle cx="61" cy="49" r="3.8" fill="#2b1a0a"/><circle cx="40.3" cy="47.7" r="1.3" fill="#fff"/><circle cx="62.3" cy="47.7" r="1.3" fill="#fff"/><ellipse cx="30.5" cy="60" rx="4.2" ry="2.7" fill="#F28B7D" opacity=".55"/><ellipse cx="69.5" cy="60" rx="4.2" ry="2.7" fill="#F28B7D" opacity=".55"/><path d="M50 69q-3 8-6.5 1.5q3 2 6.5-1.5q3.5 3.5 6.5 1.5q-3.5 6.5-6.5-1.5z" fill="#F46A7B"/><path d="M44 57q6-3.5 12 0q-1.5 6-6 6.5q-4.500-.5-6-6.500z" fill="#3a2410"/><ellipse cx="47.500" cy="58" rx="2" ry=".9" fill="#7a5a3a"/><path d="M50 63.500v3.500M50 67q-3.500 3.500-7 .5M50 67q3.500 3.500 7 .5" stroke="#3a2410" stroke-width="1.700" fill="none" stroke-linecap="round"/></svg></div>
+                <div class="w-14 h-14 shrink-0 rounded-full shadow-lg ring-2 ring-[#d4ac5a]"><svg viewBox="0 0 100 100" class="w-full h-full" aria-label="Golden Dago"><circle cx="50" cy="50" r="47" fill="#FFF6DD"/><ellipse cx="22" cy="48" rx="11" ry="22" transform="rotate(14 22 48)" fill="#B9791F"/><ellipse cx="78" cy="48" rx="11" ry="22" transform="rotate(-14 78 48)" fill="#B9791F"/><ellipse cx="50" cy="52" rx="29" ry="27" fill="#F4B942"/><path d="M42 27q8-9 16 0q-8 4-16 0z" fill="#F9CE72"/><ellipse cx="50" cy="63" rx="16" ry="12.5" fill="#FFEBC0"/><circle cx="39" cy="49" r="3.8" fill="#2b1a0a"/><circle cx="61" cy="49" r="3.8" fill="#2b1a0a"/><circle cx="40.3" cy="47.7" r="1.3" fill="#fff"/><circle cx="62.3" cy="47.7" r="1.3" fill="#fff"/><ellipse cx="30.5" cy="60" rx="4.2" ry="2.7" fill="#F28B7D" opacity=".55"/><ellipse cx="69.5" cy="60" rx="4.2" ry="2.7" fill="#F28B7D" opacity=".55"/><path d="M50 69q-3 8-6.5 1.5q3 2 6.5-1.5q3.5 3.5 6.5 1.5q-3.5 6.5-6.5-1.5z" fill="#F46A7B"/><path d="M44 57q6-3.5 12 0q-1.5 6-6 6.5q-4.500-.5-6-6.500z" fill="#3a2410"/><ellipse cx="47.500" cy="58" rx="2" ry=".9" fill="#7a5a3a"/><path d="M50 63.500v3.500M50 67q-3.500 3.500-7 .5M50 67q3.500 3.500 7 .5" stroke="#3a2410" stroke-width="1.700" fill="none" stroke-linecap="round"/></svg></div>
                 <div>
                     <h1 class="text-xl font-extrabold leading-tight">Stock Croquettes</h1>
                     <p class="text-xs text-indigo-100">Golden Dago · Scan &amp; gestion des stocks</p>
