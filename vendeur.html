@@ -22,7 +22,8 @@ li{font-size:13px;display:flex;justify-content:space-between;padding:6px 0;borde
 <main>
  <div class="c"><input id="nom" placeholder="Ton prénom" maxlength="20" autocomplete="off"><input id="pin" type="password" placeholder="Code vendeur" autocomplete="off">
   <select id="motif"><option>Vente</option><option>Abîmé</option><option>Retour fournisseur</option><option>Autre</option><option>Crédit</option></select>
-  <input id="client" placeholder="Nom du client (crédit)" maxlength="20" autocomplete="off" style="display:none"></div>
+  <input id="client" placeholder="Nom du client (crédit)" maxlength="18" autocomplete="off" style="display:none">
+  <label style="display:flex;gap:10px;align-items:center;font-size:15px"><input id="rev" type="checkbox" style="width:22px;height:22px;min-height:0"> Tarif revendeur</label></div>
  <div class="c"><div id="lecteur"></div><button class="g" id="cam" type="button">📷 Scanner un sac</button><button class="g" id="photo" type="button">📸 Photo du code (sans autorisation)</button><input id="photo-in" type="file" accept="image/*" capture="environment" style="display:none">
   <input id="saisie" placeholder="ou tape / scanne le code ici" autocapitalize="characters" autocomplete="off"><div id="res"></div></div>
  <div class="c" id="bloc-install" style="display:none"><button type="button" id="btn-install" style="background:#2f2c26">📲 Télécharger l'app</button><div id="install-txt" style="display:none;font-size:13px;line-height:1.4"></div></div>
@@ -72,7 +73,8 @@ async function scan(brut) {
   if (!$('nom').value.trim()) { msg(false, 'Entre ton prénom'); $('nom').focus(); return; }
   if (!$('pin').value.trim()) { msg(false, 'Entre le code vendeur'); $('pin').focus(); return; }
   let motifFinal = $('motif').value;
-  if (motifFinal === 'Crédit') { const cl = $('client').value.trim().slice(0, 20); if (!cl) { msg(false, 'Entre le nom du client (crédit)'); $('client').focus(); return; } motifFinal = 'Crédit - ' + cl; }
+  if (motifFinal === 'Crédit') { const cl = $('client').value.trim().slice(0, 18); if (!cl) { msg(false, 'Entre le nom du client (crédit)'); $('client').focus(); return; } motifFinal = 'Crédit - ' + cl; }
+  if ($('rev').checked) motifFinal = 'R:' + motifFinal; // « R: » = tarif revendeur (le propriétaire le lit)
   const now = Date.now();
   if (dernier.c === code && now - dernier.t < 3000) return; dernier = { c: code, t: now };
   if (file.some(x => x.code === code && now - x.ts < 86400000)) { msg(false, 'Déjà scanné : ' + code); return; }

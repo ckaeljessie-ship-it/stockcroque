@@ -232,6 +232,8 @@
                         </div>
                     </div>
 
+                    <label id="bloc-rev-man" class="hidden flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2.5 text-sm text-slate-700"><input type="checkbox" id="chk-rev-man" class="w-5 h-5 accent-indigo-600"><span><b>Tarif revendeur</b> <span class="text-xs text-slate-400">(sinon tarif standard)</span></span></label>
+
                     <label id="bloc-codes" class="flex items-start gap-3 bg-indigo-50 rounded-xl p-3 text-xs text-indigo-800">
                         <input type="checkbox" id="chk-codes" checked class="mt-0.5 w-5 h-5 accent-indigo-600">
                         <span><b>Générer un code-barres unique par sac</b><br>Les sacs sont ajoutés au stock tout de suite. Il reste à imprimer les étiquettes et à les coller : plus besoin de scanner à l'entrée.</span>
@@ -262,6 +264,7 @@
                         <option>Vente</option><option>Abîmé</option><option>Retour fournisseur</option><option>Autre</option><option>Crédit</option>
                     </select>
                     <input id="client-sortie" type="text" maxlength="20" placeholder="Nom du client (crédit)" autocomplete="off" class="hidden w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white">
+                    <label id="bloc-rev-scan" class="hidden flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2.5 text-sm text-slate-700"><input type="checkbox" id="chk-rev-scan" class="w-5 h-5 accent-indigo-600"><span><b>Tarif revendeur</b> <span class="text-xs text-slate-400">(sinon tarif standard)</span></span></label>
                     <div id="bloc-inventaire" class="hidden space-y-3">
                         <select id="inv-portee" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white"></select>
                         <div class="grid grid-cols-3 gap-2 text-center text-xs">
@@ -422,6 +425,15 @@
                     <input id="pin-proprio" type="password" placeholder="Code propriétaire" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
                     <button type="button" onclick="synchroVendeurs(true)" class="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm active:scale-95">Synchroniser maintenant</button>
                     <p id="sync-etat" class="text-xs text-slate-400"></p>
+                </div>
+                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                    <h2 class="font-bold text-slate-700">📊 Google Sheets</h2>
+                    <p class="text-xs text-slate-400">Chaque sortie (vente, crédit…) est envoyée dans l'onglet « Sorties App » de ton Sheet, avec le prix choisi par le Sheet (standard ou revendeur). Envoi automatique, même après une coupure de réseau.</p>
+                    <input id="sheet-url" type="url" placeholder="Adresse du script Google (https://script.google.com/…/exec)" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+                    <input id="sheet-token" type="password" placeholder="Mot de passe du script" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
+                    <label class="flex items-center gap-3 text-sm text-slate-700"><input type="checkbox" id="sheet-actif" class="w-5 h-5 accent-indigo-600"><span><b>Envoyer les sorties vers Google Sheets</b></span></label>
+                    <button type="button" onclick="testerSheet()" class="w-full py-3 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold active:scale-95">Tester la liaison</button>
+                    <p id="sheet-etat" class="text-xs text-slate-500"></p>
                 </div>
                 <div id="carte-integrite" class="bg-white rounded-2xl shadow p-4 space-y-3">
                     <h2 class="font-bold text-slate-700">🛡️ Contrôle d'intégrité</h2>
@@ -742,6 +754,7 @@
             rendreTout();
             await sceller();
             lancerAudit(false);
+            setTimeout(envoyerSheet, 400);
         }
 
         const unitesDe = id => unites.filter(u => u.produitId === id);
@@ -1029,6 +1042,7 @@
             btn.textContent = cfg.label;
             $('label-qte').textContent = typeCourant === 'inventaire' ? "Quantité comptée" : "Quantité";
             $('bloc-codes').classList.toggle('hidden', typeCourant !== 'entree');
+            $('bloc-rev-man').classList.toggle('hidden', typeCourant !== 'sortie');
             rendreApercu();
         }
 
@@ -1038,6 +1052,7 @@
             });
             $('scan-aide').textContent = MODES_SCAN[modeScan].aide;
             $('motif-sortie').classList.toggle('hidden', modeScan !== 'sortie');
+            $('bloc-rev-scan').classList.toggle('hidden', modeScan !== 'sortie');
             majChampClient();
             $('bloc-inventaire').classList.toggle('hidden', modeScan !== 'inventaire');
             if (modeScan === 'inventaire') rendreInv();
@@ -1106,6 +1121,7 @@
                 produit.stock = apres;
                 sp.put(produit);
                 const ligne = { produitId: produit.id, produit: produit.nom, type: typeCourant, qte: quantite, avant: avant, apres: apres, ts: Date.now(), par: operateur };
+                if (typeCourant === 'sortie') ligne.tarif = $('chk-rev-man').checked ? 'Revendeur' : 'Standard';
                 sh.add(ligne);
                 await txDone(tx);
                 toast(typeCourant === 'inventaire' ? `📋 ${produit.nom} : écart ${signe(apres - avant)} (${avant} → ${apres})` : `✔ ${produit.nom} : ${avant} → ${apres}`, !(typeCourant === 'inventaire' && apres < avant));
@@ -1670,7 +1686,7 @@
                     u.statut = 'sorti';
                     u.dateSortie = Date.now();
                     sp.put(p); su.put(u);
-                    sh.add({ produitId: p.id, produit: p.nom, type: 'sortie', qte: 1, avant: avant, apres: apres, ts: Date.now(), unite: code, par: operateur, motif: motifSortie() });
+                    sh.add({ produitId: p.id, produit: p.nom, type: 'sortie', qte: 1, avant: avant, apres: apres, ts: Date.now(), unite: code, par: operateur, motif: motifSortie(), tarif: $('chk-rev-scan').checked ? 'Revendeur' : 'Standard' });
                     await txDone(tx);
                     resultatScan('ok', `Sortie : ${p.nom}`, `${code} · stock ${avant} → ${apres}`);
                 }
@@ -1828,7 +1844,9 @@
             }
             const avant = p.stock, apres = avant - 1;
             p.stock = apres; u.statut = 'sorti'; u.dateSortie = ts; sp.put(p); su.put(u);
-            sh.add({ produitId: p.id, produit: p.nom, type: 'sortie', qte: 1, avant, apres, ts, unite: u.code, par, motif: s.motif || 'Vente', idSync: s.id });
+            // le vendeur marque « tarif revendeur » en ajoutant R: devant le motif
+            const rev = /^R:/.test(s.motif || ''), motifPropre = String(s.motif || 'Vente').replace(/^R:/, '') || 'Vente';
+            sh.add({ produitId: p.id, produit: p.nom, type: 'sortie', qte: 1, avant, apres, ts, unite: u.code, par, motif: motifPropre, idSync: s.id, tarif: rev ? 'Revendeur' : 'Standard' });
             await txDone(tx); return true;
         }
         let syncEnCours = false;
@@ -2224,6 +2242,58 @@
         }
         document.addEventListener('fullscreenchange', () => { const b = $('btn-plein'); if (b) b.textContent = document.fullscreenElement ? '⛶ Quitter le plein écran' : '⛶ Plein écran'; });
 
+        // ---------- Google Sheets : envoi des sorties ----------
+        const sheetConf = () => ({ url: (localStorage.getItem('sheetUrl') || '').trim(), token: localStorage.getItem('sheetToken') || '', actif: localStorage.getItem('sheetActif') === '1' });
+        const cleSheet = h => h.idSync ? String(h.idSync) : 'app-' + h.id;
+        let sheetEnCours = false;
+        function sheetMsg(t) { const e = $('sheet-etat'); if (e) e.textContent = t; }
+        async function postSheet(c, payload) {
+            const r = await fetch(c.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ token: c.token }, payload)) });
+            const t = await r.text(); let j; try { j = JSON.parse(t); } catch (e) { throw new Error('réponse inattendue'); }
+            if (!j.ok) throw new Error(j.erreur || 'refusé');
+            return j;
+        }
+        async function testerSheet() {
+            sauverReglagesSheet(); const c = sheetConf();
+            if (!/^https:\/\/script\.google\.com\//.test(c.url)) { sheetMsg("⚠️ L'adresse doit commencer par https://script.google.com/"); return; }
+            sheetMsg('Test en cours…');
+            try { const j = await postSheet(c, { test: true }); sheetMsg('✅ Liaison OK avec « ' + (j.feuille || 'ton Sheet') + ' »'); }
+            catch (e) { sheetMsg('⚠️ Échec : ' + (/mot de passe|token/i.test(e.message) ? 'mot de passe du script incorrect' : 'adresse incorrecte, script non publié ou pas de réseau')); }
+        }
+        function sauverReglagesSheet() {
+            try { localStorage.setItem('sheetUrl', $('sheet-url').value.trim()); localStorage.setItem('sheetToken', $('sheet-token').value); const actif = $('sheet-actif').checked; if (actif && localStorage.getItem('sheetActif') !== '1') localStorage.setItem('sheetDepuis', String(Date.now())); localStorage.setItem('sheetActif', actif ? '1' : '0'); } catch (e) {}
+        }
+        // Envoie les sorties pas encore envoyées (lues dans l'historique), puis les annulations / paiements de crédits
+        async function envoyerSheet() {
+            const c = sheetConf();
+            if (!c.actif || !c.url || !c.token || sheetEnCours || !navigator.onLine) return;
+            const depuis = parseInt(localStorage.getItem('sheetDepuis')) || 0;
+            const envoyes = new Set(lireJson('sheetEnvoyes', [])), annules = new Set(lireJson('sheetAnnules', [])), payes = new Set(lireJson('sheetPayes', []));
+            const sorties = historique.filter(h => h.type === 'sortie' && h.ts >= depuis);
+            const nouvelles = sorties.filter(h => !h.annule && !envoyes.has(cleSheet(h)));
+            const majA = sorties.filter(h => h.annule && envoyes.has(cleSheet(h)) && !annules.has(cleSheet(h)));
+            const majP = sorties.filter(h => h.paye && !h.annule && envoyes.has(cleSheet(h)) && !payes.has(cleSheet(h)));
+            if (!nouvelles.length && !majA.length && !majP.length) return;
+            sheetEnCours = true;
+            try {
+                const lignes = nouvelles.slice().reverse().slice(0, 200).map(h => ({ id: cleSheet(h), ts: h.ts, produit: h.produit, qte: Number(h.qte) || 1, tarif: h.tarif || 'Standard', type: h.motif || 'Vente', par: String(h.par || '').replace(/ \(vendeur\)$/, ''), code: h.unite || '' }));
+                const maj = majA.map(h => ({ id: cleSheet(h), annule: true })).concat(majP.map(h => ({ id: cleSheet(h), paye: h.paye.ts })));
+                await postSheet(c, { lignes, maj });
+                lignes.forEach(l => envoyes.add(l.id)); majA.forEach(h => annules.add(cleSheet(h))); majP.forEach(h => payes.add(cleSheet(h)));
+                ecrireJson('sheetEnvoyes', [...envoyes].slice(-6000)); ecrireJson('sheetAnnules', [...annules].slice(-3000)); ecrireJson('sheetPayes', [...payes].slice(-3000));
+                sheetMsg('✅ Dernier envoi : ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + ' (' + lignes.length + ' sortie(s))');
+                sheetEnCours = false;
+                if (nouvelles.length > 200) envoyerSheet();
+            } catch (e) { sheetMsg('⏳ Envoi en attente (' + (navigator.onLine ? 'le Sheet ne répond pas' : 'pas de réseau') + ') : nouvel essai automatique'); }
+            finally { sheetEnCours = false; }
+        }
+        function initSheet() {
+            const c = sheetConf(); $('sheet-url').value = c.url; $('sheet-token').value = c.token; $('sheet-actif').checked = c.actif;
+            ['sheet-url', 'sheet-token'].forEach(id => $(id).addEventListener('change', sauverReglagesSheet));
+            $('sheet-actif').addEventListener('change', () => { sauverReglagesSheet(); envoyerSheet(); });
+            setInterval(envoyerSheet, 60000); window.addEventListener('online', envoyerSheet);
+        }
+
         // ---------- Réglages ----------
         function chargerSeuil() {
             try { const s = parseInt(localStorage.getItem('seuilStock')); if (!isNaN(s)) seuil = s; } catch (e) {}
@@ -2240,6 +2310,7 @@
             try { $('pin-proprio').value = localStorage.getItem('pinProprio') || ''; } catch (e) {}
             $('pin-proprio').addEventListener('input', e => { try { localStorage.setItem('pinProprio', e.target.value.trim()); } catch (err) {} });
             majBoutonInstall();
+            initSheet();
             initReglagesEtq();
             appliquerType();
             appliquerModeScan();
