@@ -176,7 +176,9 @@
             </div>
         </div>
 
-        <main class="px-4 mt-4">
+        <div class="px-4 mt-3"><button id="sheet-chip" type="button" onclick="voirSheet()" class="w-full text-xs font-semibold rounded-xl py-2.5 px-3 text-center"></button></div>
+
+        <main class="px-4 mt-3">
 
             <div id="alerte-integrite" class="hidden mb-4">
                 <div class="bg-rose-50 border-2 border-rose-400 text-rose-800 rounded-2xl p-3 text-xs flex items-center justify-between gap-3">
@@ -426,7 +428,7 @@
                     <button type="button" onclick="synchroVendeurs(true)" class="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm active:scale-95">Synchroniser maintenant</button>
                     <p id="sync-etat" class="text-xs text-slate-400"></p>
                 </div>
-                <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+                <div id="carte-sheet" class="bg-white rounded-2xl shadow p-4 space-y-3">
                     <h2 class="font-bold text-slate-700">📊 Google Sheets</h2>
                     <p class="text-xs text-slate-400">Chaque sortie (vente, crédit…) est envoyée dans l'onglet « Sorties App » de ton Sheet, avec le prix choisi par le Sheet (standard ou revendeur). Envoi automatique, même après une coupure de réseau.</p>
                     <input id="sheet-url" type="url" placeholder="Adresse du script Google (https://script.google.com/…/exec)" autocomplete="off" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm">
@@ -754,6 +756,7 @@
             rendreTout();
             await sceller();
             lancerAudit(false);
+            majPuceSheet();
             setTimeout(envoyerSheet, 400);
         }
 
@@ -2263,16 +2266,37 @@
         function sauverReglagesSheet() {
             try { localStorage.setItem('sheetUrl', $('sheet-url').value.trim()); localStorage.setItem('sheetToken', $('sheet-token').value); const actif = $('sheet-actif').checked; if (actif && localStorage.getItem('sheetActif') !== '1') localStorage.setItem('sheetDepuis', String(Date.now())); localStorage.setItem('sheetActif', actif ? '1' : '0'); } catch (e) {}
         }
-        // Envoie les sorties pas encore envoyées (lues dans l'historique), puis les annulations / paiements de crédits
-        async function envoyerSheet() {
-            const c = sheetConf();
-            if (!c.actif || !c.url || !c.token || sheetEnCours || !navigator.onLine) return;
+        // Liste ce qu'il reste à envoyer (lu dans l'historique)
+        function calculSheet() {
             const depuis = parseInt(localStorage.getItem('sheetDepuis')) || 0;
             const envoyes = new Set(lireJson('sheetEnvoyes', [])), annules = new Set(lireJson('sheetAnnules', [])), payes = new Set(lireJson('sheetPayes', []));
             const sorties = historique.filter(h => h.type === 'sortie' && h.ts >= depuis);
-            const nouvelles = sorties.filter(h => !h.annule && !envoyes.has(cleSheet(h)));
-            const majA = sorties.filter(h => h.annule && envoyes.has(cleSheet(h)) && !annules.has(cleSheet(h)));
-            const majP = sorties.filter(h => h.paye && !h.annule && envoyes.has(cleSheet(h)) && !payes.has(cleSheet(h)));
+            return {
+                envoyes, annules, payes,
+                nouvelles: sorties.filter(h => !h.annule && !envoyes.has(cleSheet(h))),
+                majA: sorties.filter(h => h.annule && envoyes.has(cleSheet(h)) && !annules.has(cleSheet(h))),
+                majP: sorties.filter(h => h.paye && !h.annule && envoyes.has(cleSheet(h)) && !payes.has(cleSheet(h)))
+            };
+        }
+        // Petite puce toujours visible : on voit tout de suite si la liaison marche
+        function majPuceSheet() {
+            const el = $('sheet-chip'); if (!el) return;
+            const c = sheetConf(); let txt, cls;
+            if (!c.actif || !c.url || !c.token) { txt = '📊 Google Sheets : non activé (touche pour régler)'; cls = 'bg-slate-100 text-slate-500'; }
+            else {
+                const r = calculSheet(), n = r.nouvelles.length + r.majA.length + r.majP.length, der = parseInt(localStorage.getItem('sheetDernierOk')) || 0;
+                if (n) { txt = `⏳ Google Sheets : ${n} en attente d'envoi` + (navigator.onLine ? '' : ' (pas de réseau)'); cls = 'bg-amber-50 text-amber-700'; }
+                else { txt = '✅ Google Sheets : à jour' + (der ? ' · dernier envoi ' + new Date(der).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''); cls = 'bg-emerald-50 text-emerald-700'; }
+            }
+            el.textContent = txt; el.className = 'w-full text-xs font-semibold rounded-xl py-2.5 px-3 text-center ' + cls;
+        }
+        function voirSheet() { setTab('outils'); setTimeout(() => $('carte-sheet').scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }
+        // Envoie les sorties pas encore envoyées, puis les annulations / paiements de crédits
+        async function envoyerSheet() {
+            const c = sheetConf();
+            majPuceSheet();
+            if (!c.actif || !c.url || !c.token || sheetEnCours || !navigator.onLine) return;
+            const { envoyes, annules, payes, nouvelles, majA, majP } = calculSheet();
             if (!nouvelles.length && !majA.length && !majP.length) return;
             sheetEnCours = true;
             try {
@@ -2281,17 +2305,20 @@
                 await postSheet(c, { lignes, maj });
                 lignes.forEach(l => envoyes.add(l.id)); majA.forEach(h => annules.add(cleSheet(h))); majP.forEach(h => payes.add(cleSheet(h)));
                 ecrireJson('sheetEnvoyes', [...envoyes].slice(-6000)); ecrireJson('sheetAnnules', [...annules].slice(-3000)); ecrireJson('sheetPayes', [...payes].slice(-3000));
+                try { localStorage.setItem('sheetDernierOk', String(Date.now())); } catch (e) {}
                 sheetMsg('✅ Dernier envoi : ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + ' (' + lignes.length + ' sortie(s))');
+                if (lignes.length) toast('📊 ' + lignes.length + ' sortie(s) envoyée(s) vers Google Sheets');
                 sheetEnCours = false;
                 if (nouvelles.length > 200) envoyerSheet();
-            } catch (e) { sheetMsg('⏳ Envoi en attente (' + (navigator.onLine ? 'le Sheet ne répond pas' : 'pas de réseau') + ') : nouvel essai automatique'); }
-            finally { sheetEnCours = false; }
+            } catch (e) { sheetMsg('⏳ Envoi en attente (' + (navigator.onLine ? (/mot de passe/i.test(e.message) ? 'mot de passe du script incorrect' : 'le Sheet ne répond pas') : 'pas de réseau') + ') : nouvel essai automatique'); }
+            finally { sheetEnCours = false; majPuceSheet(); }
         }
         function initSheet() {
             const c = sheetConf(); $('sheet-url').value = c.url; $('sheet-token').value = c.token; $('sheet-actif').checked = c.actif;
             ['sheet-url', 'sheet-token'].forEach(id => $(id).addEventListener('change', sauverReglagesSheet));
-            $('sheet-actif').addEventListener('change', () => { sauverReglagesSheet(); envoyerSheet(); });
-            setInterval(envoyerSheet, 60000); window.addEventListener('online', envoyerSheet);
+            $('sheet-actif').addEventListener('change', () => { sauverReglagesSheet(); majPuceSheet(); envoyerSheet(); });
+            ['sheet-url', 'sheet-token'].forEach(id => $(id).addEventListener('change', majPuceSheet));
+            setInterval(envoyerSheet, 60000); window.addEventListener('online', envoyerSheet); window.addEventListener('offline', majPuceSheet); majPuceSheet();
         }
 
         // ---------- Réglages ----------
